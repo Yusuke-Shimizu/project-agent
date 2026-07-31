@@ -1,0 +1,20 @@
+#!/bin/sh
+# ステージされた変更に秘匿情報が混ざっていないか gitleaks で検査する。
+#
+# clone 直後は git がこのディレクトリを見ないので、一度だけ以下を実行すること:
+#   git config core.hooksPath .githooks
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+	echo "pre-commit: gitleaks が見つからないため検査をスキップしました (brew install gitleaks)" >&2
+	exit 0
+fi
+
+if ! gitleaks git --staged --redact --no-banner; then
+	cat >&2 <<'MSG'
+
+pre-commit: 秘匿情報の疑いがある変更を検出したためコミットを中止しました。
+  誤検知なら該当行末に gitleaks:allow コメントを付けるか、
+  検出された Fingerprint を .gitleaksignore に追記してください。
+MSG
+	exit 1
+fi

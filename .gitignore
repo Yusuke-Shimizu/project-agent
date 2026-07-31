@@ -1,2 +1,20 @@
-# direnv のキャッシュディレクトリ
+# direnv
 .direnv/
+.envrc.local
+
+# 環境変数（秘匿情報の置き場）
+.env
+.env.*
+!.env.example
+
+# 鍵・証明書・認証情報
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+credentials
+
+# macOS
+.DS_Store

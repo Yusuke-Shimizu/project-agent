@@ -1,0 +1,36 @@
+# gitleaks の検出ルール。デフォルトルールに、既定では拾われないものを追加する。
+[extend]
+useDefault = true
+
+# gitleaks 8.x のデフォルトには AWS アクセスキー ID のルールが無いので自前で定義する。
+[[rules]]
+id = "aws-access-key-id"
+description = "AWS Access Key ID"
+regex = '''\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16})\b'''
+keywords = ["akia", "asia", "abia", "acca", "a3t"]
+
+  # AWS 公式ドキュメントのサンプル値は除外する。
+  [rules.allowlist]
+  regexes = ['''EXAMPLE''']
+
+[[rules]]
+id = "aws-secret-access-key"
+description = "AWS Secret Access Key"
+regex = '''(?i)aws[_.-]?(?:secret|sec)[_.-]?(?:access)?[_.-]?key\s*[:=]\s*["']?([A-Za-z0-9/+=]{40})["']?'''
+secretGroup = 1
+keywords = ["aws_secret", "aws-secret", "awssecret", "secret_access_key"]
+
+  [rules.allowlist]
+  regexes = ['''EXAMPLE''']
+
+[[rules]]
+id = "private-key-block"
+description = "Private key block (RSA/EC/OPENSSH/PGP など)"
+regex = '''-----BEGIN[ A-Z0-9_-]{0,100}PRIVATE KEY( BLOCK)?-----'''
+keywords = ["-----begin"]
+
+[allowlist]
+description = "リポジトリ全体で除外するパス"
+paths = [
+  '''\.gitleaks\.toml$''',
+]
