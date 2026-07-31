@@ -3,11 +3,60 @@
 案件の decision / knowledge を根拠付きで参照する Slack 常駐エージェント（v1 Project
 Context Agent）。技術勉強会の登壇デモとして作っている。
 
+実装は 4 段階（L0〜L3）で積み上げる。**現在 L0（ローカル）まで。**
+
+| 段 | 中身 | 状態 |
+| --- | --- | --- |
+| L0 | ローカルの Strands + `knowledge_base/` 直読み。台本 4 問に根拠付きで答えられる | ✅ |
+| L1 | Managed KB を作り `search` を Retrieve に差し替え／AgentCore Runtime にデプロイ | — |
+| L2 | Slack App + API GW + Lambda×2 | — |
+| L3 | ツールを Lambda に出し Gateway の MCP ターゲットとして公開 | — |
+
 ## 構成
 
 | パス | 中身 |
 | --- | --- |
 | [knowledge_base/](knowledge_base/) | Bedrock Knowledge Base のデータソース。デモ用の**完全架空**案件データ。仕様は [knowledge_base/README.md](knowledge_base/README.md) |
+| [code/tools/core.py](code/tools/core.py) | ツールの実体（`search_project_knowledge` / `get_document`）。L0〜L3 で I/F を変えない |
+| [code/tools/local_tools.py](code/tools/local_tools.py) | Strands `@tool` の薄いラッパ |
+| [code/runtime/prompts.py](code/runtime/prompts.py) | 出力契約（3 ブロック + 不変ルール 5 つ） |
+| [code/runtime/agent.py](code/runtime/agent.py) | Agent の組み立て。L1 で AgentCore のラッパを足す |
+| [code/scripts/ask.py](code/scripts/ask.py) | L0 の入口（CLI）。L2 で Slack に置き換わる |
+| [code/scripts/run_demo_script.py](code/scripts/run_demo_script.py) | 台本 4 問の連続実行と判定 |
+
+## 使い方
+
+```sh
+uv sync --extra dev
+```
+
+ツール単体（AWS 不要）:
+
+```sh
+uv run python -m tools.core "マルチテナント 物理分離"
+uv run python -m tools.core --doc DEC-003a
+uv run pytest
+```
+
+エージェント（Bedrock を呼ぶ）:
+
+```sh
+uv run python code/scripts/ask.py "非同期処理は Step Functions で組む予定です"
+uv run python code/scripts/run_demo_script.py --repeat 3
+```
+
+`run_demo_script.py` は台本 4 問（矛盾／superseded／暗黙知／根拠なし）を流し、
+期待する doc_id を根拠に挙げているかを機械的に判定する。**当日前にこれを複数回流して
+回答が安定していることを確認する。**
+
+### 環境変数
+
+| 変数 | 既定 | 用途 |
+| --- | --- | --- |
+| `KAI_KNOWLEDGE_SOURCE` | `local` | 正本の読み口。`s3` に切り替えると S3 を読む |
+| `KAI_KNOWLEDGE_BUCKET` | — | `s3` のときのバケット名 |
+| `KAI_MODEL_ID` | `jp.anthropic.claude-sonnet-4-6` | Bedrock の推論プロファイル |
+| `AWS_REGION` | `ap-northeast-1` | リージョン |
 
 ## セットアップ
 

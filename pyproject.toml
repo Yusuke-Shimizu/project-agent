@@ -1,0 +1,25 @@
+[project]
+name = "project-agent"
+version = "0.1.0"
+description = "v1 Project Context Agent - 案件の decision / knowledge を根拠付きで引くエージェント"
+requires-python = ">=3.12"
+dependencies = [
+    "strands-agents>=0.1.0",
+    "boto3>=1.35.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# code/ はソースルート。パッケージは tools / runtime。
+# code/ 自体をパッケージにしないのは、標準ライブラリの `code` モジュールを隠さないため。
+[tool.hatch.build.targets.wheel]
+packages = ["code/tools", "code/runtime"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
