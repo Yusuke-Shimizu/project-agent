@@ -24,20 +24,28 @@ Bedrock Knowledge Base のデータソースになる正本。実在の顧客名
 根拠の提示（doc_id・日付・状態）に使う。
 
 ```yaml
-doc_id: DEC-003a          # ファイル名と一致させる
-type: decision            # decision | knowledge | meeting
-date: 2025-07             # decision のみ。決定日
-status: superseded        # active | superseded | draft
-title: 非同期処理基盤に EventBridge + Step Functions
-supersedes: null          # decision のみ。置換した側の doc_id
-superseded_by: DEC-003b   # decision のみ。置換された側から見た後継
+doc_id: DEC-003b          # ファイル名と一致させる
+doc_type: decision        # decision | knowledge | meeting
+title: 非同期処理は SQS + Lambda に変更
+date: 2025-08-20          # ISO 日付
+status: active            # active | superseded | proposed | rejected
+supersedes: DEC-003a      # decision のみ。置き換えた旧版の doc_id
+superseded_by: null       # decision のみ。置き換えられた側から見た後継
+decided_by: アーキテクト    # decision のみ。架空のロール名。個人名は書かない
+owner: SREリード           # 更新責任者（v1 のエージェントは参照しない）
+review_by: 2026-12-31     # 次の見直し期限（v1 のエージェントは参照しない）
+topic: async
 ```
 
 `status` の意味:
 
 - `active` — 現行の正本
 - `superseded` — 後続の decision に置換済み。`superseded_by` を辿る
-- `draft` — 検討段階。**正本として扱ってはいけない**（meetings が主にこれ）
+- `proposed` — 検討段階で、正式 decision に昇格していない。**正本として扱ってはいけない**
+  （meetings はすべてこれ）
+- `rejected` — 却下された案（v1 のデータには無い）
+
+`owner` / `review_by` は §5.3 の棚卸しのための置き場所で、v1 のエージェントは読まない。
 
 ## データに仕込んだ仕掛け
 

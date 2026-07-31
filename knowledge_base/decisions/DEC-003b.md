@@ -1,16 +1,20 @@
 ---
 doc_id: DEC-003b
-type: decision
-date: 2025-08
-status: active
+doc_type: decision
 title: 非同期処理は SQS + Lambda に変更
+date: 2025-08-20
+status: active
 supersedes: DEC-003a
 superseded_by: null
+decided_by: アーキテクト
+owner: SREリード
+review_by: 2026-12-31
+topic: async
 ---
 
 # DEC-003b: 非同期処理は SQS + Lambda に変更
 
-**決定日**: 2025-08 / **状態**: active
+**決定日**: 2025-08-20 / **状態**: active
 
 ## 決定
 非同期処理基盤を Amazon SQS + AWS Lambda に変更する。
