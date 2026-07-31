@@ -21,10 +21,10 @@ from strands.models import BedrockModel
 from runtime.prompts import SYSTEM_PROMPT
 from tools.local_tools import TOOLS
 
-#: 既定のモデル。architecture_v1.md §0 の「ap-northeast-1（東京）／クロスリージョン推論
-#: プロファイル」に合わせ、日本国内に閉じた jp. プロファイルを使う。
-#: より新しい Sonnet 5 は現状 global. プロファイルしか無く、推論が国外に出る。
-DEFAULT_MODEL_ID = "jp.anthropic.claude-sonnet-4-6"
+#: 既定のモデル。ap-northeast-1 から Sonnet 5 を使えるのは global. プロファイルだけで、
+#: 推論は国外に出うる（日本国内に閉じたいなら jp.anthropic.claude-sonnet-4-6）。
+#: デモデータは完全架空なので実データの所在制約は関係しない。
+DEFAULT_MODEL_ID = "global.anthropic.claude-sonnet-5"
 DEFAULT_REGION = "ap-northeast-1"
 
 

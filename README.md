@@ -55,7 +55,7 @@ uv run python code/scripts/run_demo_script.py --repeat 3
 | --- | --- | --- |
 | `KAI_KNOWLEDGE_SOURCE` | `local` | 正本の読み口。`s3` に切り替えると S3 を読む |
 | `KAI_KNOWLEDGE_BUCKET` | — | `s3` のときのバケット名 |
-| `KAI_MODEL_ID` | `jp.anthropic.claude-sonnet-4-6` | Bedrock の推論プロファイル |
+| `KAI_MODEL_ID` | `global.anthropic.claude-sonnet-5` | Bedrock の推論プロファイル |
 | `AWS_REGION` | `ap-northeast-1` | リージョン |
 
 ## セットアップ
