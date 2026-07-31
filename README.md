@@ -1,5 +1,14 @@
 # project-agent
 
+案件の decision / knowledge を根拠付きで参照する Slack 常駐エージェント（v1 Project
+Context Agent）。技術勉強会の登壇デモとして作っている。
+
+## 構成
+
+| パス | 中身 |
+| --- | --- |
+| [knowledge_base/](knowledge_base/) | Bedrock Knowledge Base のデータソース。デモ用の**完全架空**案件データ。仕様は [knowledge_base/README.md](knowledge_base/README.md) |
+
 ## セットアップ
 
 clone 後に一度だけ実行する。どちらも git config / direnv のローカル設定なので、
