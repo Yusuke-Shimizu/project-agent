@@ -3,12 +3,16 @@
 案件の decision / knowledge を根拠付きで参照する Slack 常駐エージェント（v1 Project
 Context Agent）。技術勉強会の登壇デモとして作っている。
 
-実装は 4 段階（L0〜L3）で積み上げる。**現在 L0（ローカル）まで。**
+段階的に積み上げる。**1 段 = 1 つの差し替え、判定は毎回 `run_demo_script.py` の全問 PASS。**
+現在 **L0（ローカル）まで**。
 
 | 段 | 中身 | 状態 |
 | --- | --- | --- |
 | L0 | ローカルの Strands + `knowledge_base/` 直読み。台本 4 問に根拠付きで答えられる | ✅ |
-| L1 | Managed KB を作り `search` を Retrieve に差し替え／AgentCore Runtime にデプロイ | — |
+| L1a | 正本を S3 に置く（読み口は直読みのまま。KB はまだ作らない） | — |
+| L1b | Managed KB を作って Ingestion（`search` はまだ差し替えない） | — |
+| L1c | `search` の中身を KB の Retrieve に差し替え | — |
+| L1d | AgentCore Runtime にデプロイ | — |
 | L2 | Slack App + API GW + Lambda×2 | — |
 | L3 | ツールを Lambda に出し Gateway の MCP ターゲットとして公開 | — |
 
