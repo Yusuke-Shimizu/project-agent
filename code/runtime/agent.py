@@ -36,7 +36,7 @@ def build_agent(stream: bool = True) -> Agent:
             False なら黙らせて戻り値だけ返す（台本の一括実行用）。
 
     環境変数:
-        KAI_MODEL_ID   モデル/推論プロファイル ID（既定 jp.anthropic.claude-sonnet-4-6）
+        KAI_MODEL_ID   モデル/推論プロファイル ID（既定 global.anthropic.claude-sonnet-5）
         AWS_REGION     リージョン（既定 ap-northeast-1）
     """
     kwargs = {} if stream else {"callback_handler": None}
