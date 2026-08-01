@@ -62,7 +62,13 @@ if [[ -n "${KAI_KNOWLEDGE_BUCKET:-}" ]]; then
   if aws s3api head-bucket --bucket "$KAI_KNOWLEDGE_BUCKET" >/dev/null 2>&1; then
     n=$(aws s3 ls "s3://$KAI_KNOWLEDGE_BUCKET" --recursive --summarize 2>/dev/null \
         | awk '/Total Objects:/ {print $3}')
-    targets+=("bucket:$KAI_KNOWLEDGE_BUCKET (${n:-?} オブジェクト)")
+    if [[ "${n:-0}" -gt 0 ]]; then
+      # バケット自体は CDK が持っているので消さない。空にするだけ。
+      # 空でないと cdk destroy が失敗するので、その下ごしらえ
+      targets+=("empty-bucket:$KAI_KNOWLEDGE_BUCKET (${n} オブジェクト)")
+    else
+      echo "skip: バケット $KAI_KNOWLEDGE_BUCKET は既に空"
+    fi
   else
     echo "skip: バケット $KAI_KNOWLEDGE_BUCKET は見つからない（削除済み？）"
   fi
@@ -105,15 +111,19 @@ for target in "${targets[@]}"; do
       aws bedrock-agent delete-knowledge-base \
         --knowledge-base-id "$id" --region "$REGION" >/dev/null
       ;;
-    bucket:*)
-      name="${target#bucket:}"; name="${name%% *}"
-      echo "削除中: s3://$name"
+    empty-bucket:*)
+      name="${target#empty-bucket:}"; name="${name%% *}"
+      echo "空にする: s3://$name"
       aws s3 rm "s3://$name" --recursive >/dev/null
-      aws s3api delete-bucket --bucket "$name" --region "$REGION"
       ;;
   esac
 done
 
 echo
-echo "完了。CloudWatch のログ（/aws/bedrock-agentcore/... と aws/spans）は残っている。"
+echo "完了。"
+echo "CDK が作ったもの（S3 バケット本体・Knowledge Base）はスタックごと消す:"
+echo "  npx -y aws-cdk@2.1134.0 destroy KaiKnowledgeStack"
+echo "正本は git の knowledge_base/ なので、消しても seed_knowledge.py で戻せる。"
+echo
+echo "CloudWatch のログ（/aws/bedrock-agentcore/... と aws/spans）は残っている。"
 echo "保持期間で自然に消えるが、すぐ消したいなら aws logs delete-log-group で。"

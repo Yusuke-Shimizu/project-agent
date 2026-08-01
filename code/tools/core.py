@@ -86,10 +86,12 @@ class Document:
         }
 
 
-def parse_document(text: str, uri: str) -> Document:
-    """front matter 付き markdown を Document にする。
+def split_front_matter(text: str, uri: str) -> tuple[dict, str]:
+    """front matter 付き markdown を (メタデータ, 本文) に割る。
 
-    front matter が無い、または doc_id を欠くファイルは正本として扱えないので弾く。
+    `Document` に載せないキー（topic など）も辞書のまま返すので、
+    `.metadata.json` を作る側（seed_knowledge.py）もこれを使う。パースの規則を
+    読み口と seed で二重に持たないための共通点。
     """
     m = re.match(r"^---\n(.*?)\n---\n(.*)$", text, re.S)
     if not m:
@@ -100,6 +102,16 @@ def parse_document(text: str, uri: str) -> Document:
     if missing:
         raise ValueError(f"front matter に {', '.join(missing)} が無い: {uri}")
 
+    return meta, m.group(2).strip()
+
+
+def parse_document(text: str, uri: str) -> Document:
+    """front matter 付き markdown を Document にする。
+
+    front matter が無い、または必須キーを欠くファイルは正本として扱えないので弾く。
+    """
+    meta, body = split_front_matter(text, uri)
+
     return Document(
         doc_id=str(meta["doc_id"]),
         doc_type=str(meta["doc_type"]),
@@ -108,7 +120,7 @@ def parse_document(text: str, uri: str) -> Document:
         status=str(meta["status"]),
         supersedes=_opt(meta.get("supersedes")),
         superseded_by=_opt(meta.get("superseded_by")),
-        body=m.group(2).strip(),
+        body=body,
         uri=uri,
     )
 

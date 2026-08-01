@@ -4,12 +4,12 @@
 Context Agent）。技術勉強会の登壇デモとして作っている。
 
 段階的に積み上げる。**1 段 = 1 つの差し替え、判定は毎回 `run_demo_script.py` の全問 PASS。**
-現在 **L0（ローカル）まで**。
+現在 **L1a（正本を S3 に）まで**。
 
 | 段 | 中身 | 状態 |
 | --- | --- | --- |
 | L0 | ローカルの Strands + `knowledge_base/` 直読み。台本 4 問に根拠付きで答えられる | ✅ |
-| L1a | 正本を S3 に置く（読み口は直読みのまま。KB はまだ作らない） | — |
+| L1a | 正本を S3 に置く（読み口は直読みのまま。KB はまだ作らない） | ✅ |
 | L1b | Managed KB を作って Ingestion（`search` はまだ差し替えない） | — |
 | L1c | `search` の中身を KB の Retrieve に差し替え | — |
 | L1d | AgentCore Runtime にデプロイ | — |
@@ -27,6 +27,9 @@ Context Agent）。技術勉強会の登壇デモとして作っている。
 | [code/runtime/agent.py](code/runtime/agent.py) | Agent の組み立て。L1 で AgentCore のラッパを足す |
 | [code/scripts/ask.py](code/scripts/ask.py) | L0 の入口（CLI）。L2 で Slack に置き換わる |
 | [code/scripts/run_demo_script.py](code/scripts/run_demo_script.py) | 台本 4 問の連続実行と判定 |
+| [code/scripts/seed_knowledge.py](code/scripts/seed_knowledge.py) | 正本を S3 に同期し `.metadata.json` を生成する（CI の代役） |
+| [code/scripts/teardown.sh](code/scripts/teardown.sh) | デモ用リソースの後片付け |
+| [infrastructure/](infrastructure/) | CDK (Python)。`KaiKnowledgeStack` が S3 バケットを持つ |
 
 ## 使い方
 
@@ -47,6 +50,24 @@ uv run pytest
 ```sh
 uv run python code/scripts/ask.py "非同期処理は Step Functions で組む予定です"
 uv run python code/scripts/run_demo_script.py --repeat 3
+```
+
+正本を S3 に置く（L1a）:
+
+```sh
+npx -y aws-cdk@2.1134.0 deploy KaiKnowledgeStack
+uv run python code/scripts/seed_knowledge.py
+```
+
+CDK CLI を `npx` で固定しているのは、`aws-cdk-lib` 2.263 が CLI 2.1134 以上を要求する一方、
+グローバルに入れた CLI がそれより古いことがあるため。バケット名は
+`seed_knowledge.py` がスタックの出力から自動で引く。
+
+読み口を S3 に向けて台本を流すと、ローカル直読みと**同じ答え**が返る（L1a の完了条件）:
+
+```sh
+export KAI_KNOWLEDGE_SOURCE=s3
+uv run python code/scripts/run_demo_script.py
 ```
 
 `run_demo_script.py` は台本 4 問（矛盾／superseded／暗黙知／根拠なし）を流し、

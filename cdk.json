@@ -1,0 +1,10 @@
+{
+  "app": "uv run --extra infra python infrastructure/app.py",
+  "watch": { "exclude": ["**/.venv/**", "**/__pycache__/**"] },
+  "context": {
+    "@aws-cdk/customresources:installLatestAwsSdkDefault": false,
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/core:checkSecretUsage": true,
+    "@aws-cdk/core:target-partitions": ["aws"]
+  }
+}
