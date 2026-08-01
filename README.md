@@ -4,13 +4,13 @@
 Context Agent）。技術勉強会の登壇デモとして作っている。
 
 段階的に積み上げる。**1 段 = 1 つの差し替え、判定は毎回 `run_demo_script.py` の全問 PASS。**
-現在 **L1a（正本を S3 に）まで**。
+現在 **L1b（KB を作って Ingestion）まで**。
 
 | 段 | 中身 | 状態 |
 | --- | --- | --- |
 | L0 | ローカルの Strands + `knowledge_base/` 直読み。台本 4 問に根拠付きで答えられる | ✅ |
 | L1a | 正本を S3 に置く（読み口は直読みのまま。KB はまだ作らない） | ✅ |
-| L1b | Managed KB を作って Ingestion（`search` はまだ差し替えない） | — |
+| L1b | Managed KB を作って Ingestion（`search` はまだ差し替えない） | ✅ |
 | L1c | `search` の中身を KB の Retrieve に差し替え | — |
 | L1d | AgentCore Runtime にデプロイ | — |
 | L2 | Slack App + API GW + Lambda×2 | — |
@@ -27,9 +27,10 @@ Context Agent）。技術勉強会の登壇デモとして作っている。
 | [code/runtime/agent.py](code/runtime/agent.py) | Agent の組み立て。L1 で AgentCore のラッパを足す |
 | [code/scripts/ask.py](code/scripts/ask.py) | L0 の入口（CLI）。L2 で Slack に置き換わる |
 | [code/scripts/run_demo_script.py](code/scripts/run_demo_script.py) | 台本 4 問の連続実行と判定 |
-| [code/scripts/seed_knowledge.py](code/scripts/seed_knowledge.py) | 正本を S3 に同期し `.metadata.json` を生成する（CI の代役） |
+| [code/scripts/seed_knowledge.py](code/scripts/seed_knowledge.py) | 正本を S3 に同期し `.metadata.json` を生成し、KB の Ingestion まで回す（CI の代役） |
+| [code/scripts/check_retrieve.py](code/scripts/check_retrieve.py) | KB の引き当てだけを確かめる（エージェントを通さない） |
 | [code/scripts/teardown.sh](code/scripts/teardown.sh) | デモ用リソースの後片付け |
-| [infrastructure/](infrastructure/) | CDK (Python)。`KaiKnowledgeStack` が S3 バケットを持つ |
+| [infrastructure/](infrastructure/) | CDK (Python)。`KaiKnowledgeStack` が S3 バケットと Managed KB を持つ |
 
 ## 使い方
 
@@ -52,11 +53,18 @@ uv run python code/scripts/ask.py "非同期処理は Step Functions で組む�
 uv run python code/scripts/run_demo_script.py --repeat 3
 ```
 
-正本を S3 に置く（L1a）:
+正本を S3 に置き、KB に取り込む（L1a / L1b）:
 
 ```sh
 npx -y aws-cdk@2.1134.0 deploy KaiKnowledgeStack
 uv run python code/scripts/seed_knowledge.py
+```
+
+`seed_knowledge.py` は S3 に同期したあと Ingestion job を起こして完了まで待つ
+（`--no-ingest` で同期だけ）。索引の出来は**エージェントを通さずに**確かめる:
+
+```sh
+uv run python code/scripts/check_retrieve.py --show
 ```
 
 CDK CLI を `npx` で固定しているのは、`aws-cdk-lib` 2.263 が CLI 2.1134 以上を要求する一方、

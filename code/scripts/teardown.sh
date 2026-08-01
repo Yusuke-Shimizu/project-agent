@@ -8,10 +8,12 @@
 # 消す対象は**環境変数で明示されたものだけ**。名前の推測やワイルドカードでの一括削除は
 # しない。未設定のものは黙って飛ばす。
 #
-#   KAI_RUNTIME_ID        AgentCore Runtime の ID（L1d）
-#   KAI_KB_ID             Bedrock Knowledge Base の ID（L1b）
-#   KAI_KNOWLEDGE_BUCKET  正本を置いた S3 バケット名（L1a）
+#   KAI_RUNTIME_ID        AgentCore Runtime の ID（L1d。starter toolkit が作るので CDK 外）
+#   KAI_KNOWLEDGE_BUCKET  正本を置いた S3 バケット名（中身を空にするだけ）
 #   AWS_REGION            既定 ap-northeast-1
+#
+# S3 バケット本体と Knowledge Base は CDK の持ち物なので、ここでは消さない。
+# スタックごと消すのは cdk destroy（完了時に案内する）。
 #
 # 使い方:
 #   ./code/scripts/teardown.sh            # 消す対象を出して確認を取る
@@ -32,7 +34,7 @@ for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=true ;;
     -y|--yes)  ASSUME_YES=true ;;
-    -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "不明な引数: $arg" >&2; exit 2 ;;
   esac
 done
@@ -49,14 +51,8 @@ if [[ -n "${KAI_RUNTIME_ID:-}" ]]; then
   fi
 fi
 
-if [[ -n "${KAI_KB_ID:-}" ]]; then
-  if aws bedrock-agent get-knowledge-base \
-       --knowledge-base-id "$KAI_KB_ID" --region "$REGION" >/dev/null 2>&1; then
-    targets+=("kb:$KAI_KB_ID")
-  else
-    echo "skip: Knowledge Base $KAI_KB_ID は見つからない（削除済み？）"
-  fi
-fi
+# Knowledge Base と S3 バケット本体は CDK の持ち物なので、ここでは消さない。
+# 外から消すとスタックが壊れる。消すなら cdk destroy（最後に案内する）。
 
 if [[ -n "${KAI_KNOWLEDGE_BUCKET:-}" ]]; then
   if aws s3api head-bucket --bucket "$KAI_KNOWLEDGE_BUCKET" >/dev/null 2>&1; then
@@ -76,7 +72,7 @@ fi
 
 if [[ ${#targets[@]} -eq 0 ]]; then
   echo "消すものは無い。"
-  echo "（環境変数 KAI_RUNTIME_ID / KAI_KB_ID / KAI_KNOWLEDGE_BUCKET が未設定なら、それが理由）"
+  echo "（環境変数 KAI_RUNTIME_ID / KAI_KNOWLEDGE_BUCKET が未設定なら、それが理由）"
   exit 0
 fi
 
@@ -96,7 +92,7 @@ if [[ "$ASSUME_YES" != true ]]; then
   [[ "$answer" == "y" || "$answer" == "Y" ]] || { echo "中止した。"; exit 1; }
 fi
 
-# 依存の逆順に消す: Runtime → KB → S3
+# 依存の逆順に消す: Runtime → S3 の中身
 for target in "${targets[@]}"; do
   case "$target" in
     runtime:*)
@@ -104,12 +100,6 @@ for target in "${targets[@]}"; do
       echo "削除中: Runtime $id"
       aws bedrock-agentcore-control delete-agent-runtime \
         --agent-runtime-id "$id" --region "$REGION" >/dev/null
-      ;;
-    kb:*)
-      id="${target#kb:}"
-      echo "削除中: Knowledge Base $id"
-      aws bedrock-agent delete-knowledge-base \
-        --knowledge-base-id "$id" --region "$REGION" >/dev/null
       ;;
     empty-bucket:*)
       name="${target#empty-bucket:}"; name="${name%% *}"

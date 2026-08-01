@@ -25,6 +25,7 @@ import json
 import os
 import pathlib
 import sys
+import time
 
 import boto3
 
@@ -41,27 +42,58 @@ EMBED = ("doc_id", "doc_type", "status")
 FILTER_ONLY = ("date", "topic", "supersedes", "superseded_by")
 
 STACK_NAME = "KaiKnowledgeStack"
-OUTPUT_KEY = "KnowledgeBucketName"
 
 
-def resolve_bucket(region: str) -> str:
-    """バケット名を環境変数か CloudFormation の出力から決める。"""
-    if bucket := os.environ.get("KAI_KNOWLEDGE_BUCKET"):
-        return bucket
+def stack_outputs(region: str) -> dict[str, str]:
+    """CloudFormation スタックの出力を辞書で返す。
 
+    バケット名や KB の ID を手でコピペしなくて済むようにするための逃げ道。
+    """
     cfn = boto3.client("cloudformation", region_name=region)
     try:
         stacks = cfn.describe_stacks(StackName=STACK_NAME)["Stacks"]
     except cfn.exceptions.ClientError as exc:
         raise SystemExit(
             f"{STACK_NAME} が見つからない。先に cdk deploy するか、"
-            f"KAI_KNOWLEDGE_BUCKET を設定する: {exc}"
+            f"KAI_KNOWLEDGE_BUCKET などを環境変数で渡す: {exc}"
         ) from exc
+    return {o["OutputKey"]: o["OutputValue"] for o in stacks[0].get("Outputs", [])}
 
-    for output in stacks[0].get("Outputs", []):
-        if output["OutputKey"] == OUTPUT_KEY:
-            return output["OutputValue"]
-    raise SystemExit(f"{STACK_NAME} に {OUTPUT_KEY} の出力が無い")
+
+def run_ingestion(region: str, kb_id: str, ds_id: str) -> None:
+    """Ingestion job を起こして終わるまで待つ（§5.2 の CI の後半）。
+
+    S3 に置いただけでは KB は新しい内容を知らない。ここまでやって初めて
+    「正本 → 索引」が繋がる。
+    """
+    agent = boto3.client("bedrock-agent", region_name=region)
+    job = agent.start_ingestion_job(knowledgeBaseId=kb_id, dataSourceId=ds_id)
+    job_id = job["ingestionJob"]["ingestionJobId"]
+    print(f"Ingestion job {job_id} を起動した。完了まで待つ…")
+
+    while True:
+        current = agent.get_ingestion_job(
+            knowledgeBaseId=kb_id, dataSourceId=ds_id, ingestionJobId=job_id
+        )["ingestionJob"]
+        status = current["status"]
+        if status in ("COMPLETE", "FAILED", "STOPPED"):
+            break
+        time.sleep(5)
+
+    stats = current.get("statistics", {})
+    print(f"Ingestion: {status}")
+    if stats:
+        print(
+            f"  スキャン {stats.get('numberOfDocumentsScanned', '?')} / "
+            f"取り込み {stats.get('numberOfNewDocumentsIndexed', '?')} 新規, "
+            f"{stats.get('numberOfModifiedDocumentsIndexed', '?')} 更新, "
+            f"{stats.get('numberOfDocumentsDeleted', '?')} 削除, "
+            f"{stats.get('numberOfDocumentsFailed', '?')} 失敗"
+        )
+    if status != "COMPLETE":
+        for reason in current.get("failureReasons", []):
+            print(f"  ! {reason}")
+        raise SystemExit(1)
 
 
 def build_metadata(meta: dict) -> dict:
@@ -105,8 +137,9 @@ def collect(root: pathlib.Path) -> dict[str, bytes]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="正本を S3 に同期する")
+    parser = argparse.ArgumentParser(description="正本を S3 に同期し、KB に取り込む")
     parser.add_argument("--dry-run", action="store_true", help="送らずに内容を出す")
+    parser.add_argument("--no-ingest", action="store_true", help="S3 同期だけで Ingestion しない")
     parser.add_argument("--region", default=os.environ.get("AWS_REGION", "ap-northeast-1"))
     args = parser.parse_args()
 
@@ -121,7 +154,8 @@ def main() -> None:
         print("(--dry-run のため送らない)")
         return
 
-    bucket = resolve_bucket(args.region)
+    outputs = stack_outputs(args.region)
+    bucket = os.environ.get("KAI_KNOWLEDGE_BUCKET") or outputs["KnowledgeBucketName"]
     s3 = boto3.client("s3", region_name=args.region)
 
     # 今 S3 にあるものを控えておき、ローカルに無いものは後で消す
@@ -144,6 +178,17 @@ def main() -> None:
         print(f"削除（ローカルに無い）: {len(stale)} オブジェクト")
         for key in sorted(stale):
             print(f"  - {key}")
+
+    kb_id = os.environ.get("KAI_KB_ID") or outputs.get("KnowledgeBaseId")
+    ds_id = os.environ.get("KAI_DATA_SOURCE_ID") or outputs.get("DataSourceId")
+
+    if args.no_ingest:
+        print("(--no-ingest のため Ingestion しない)")
+    elif kb_id and ds_id:
+        print()
+        run_ingestion(args.region, kb_id, ds_id)
+    else:
+        print("(KB がまだ無いので Ingestion しない)")
 
     print()
     print("読み口を S3 に向けるには:")

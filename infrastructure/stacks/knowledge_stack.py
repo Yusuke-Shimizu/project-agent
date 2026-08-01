@@ -6,10 +6,13 @@ architecture_v1.md §5.1 の prefix 分離をここで物理的に表現する�
     ├── knowledge_base/   ← KB のデータソースはこの prefix だけ
     └── raw/              ← 提供された Excel / PPT / PDF。KB には取り込まない
 
-L1a では S3 バケットだけ。Managed KB は L1b でこのスタックに足す。
+L1a で S3 バケット、L1b で Managed KB とデータソースを足した。
+**この段では索引を作るだけで、エージェントはまだ KB を見ていない**（§9）。
 """
 
 from aws_cdk import Aws, CfnOutput, RemovalPolicy, Stack
+from aws_cdk import aws_bedrock as bedrock
+from aws_cdk import aws_iam as iam
 from aws_cdk import aws_s3 as s3
 from constructs import Construct
 
@@ -18,6 +21,9 @@ class KnowledgeStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
+        # ------------------------------------------------------------------
+        # 正本の置き場（L1a）
+        # ------------------------------------------------------------------
         self.bucket = s3.Bucket(
             self,
             "KnowledgeBucket",
@@ -33,9 +39,130 @@ class KnowledgeStack(Stack):
             removal_policy=RemovalPolicy.DESTROY,
         )
 
+        # ------------------------------------------------------------------
+        # KB のサービスロール（L1b）
+        # ------------------------------------------------------------------
+        # embeddingModelType: MANAGED なので bedrock:InvokeModel は要らない。
+        # サービス管理の埋め込みモデルが使われ、モデルアクセスの申請も不要。
+        # 渡す権限は「この bucket の knowledge_base/ を読むこと」だけ。
+        kb_role = iam.Role(
+            self,
+            "KnowledgeBaseRole",
+            assumed_by=iam.ServicePrincipal(
+                "bedrock.amazonaws.com",
+                conditions={
+                    "StringEquals": {"aws:SourceAccount": Aws.ACCOUNT_ID},
+                    "ArnLike": {
+                        "aws:SourceArn": f"arn:aws:bedrock:{Aws.REGION}:{Aws.ACCOUNT_ID}:knowledge-base/*"
+                    },
+                },
+            ),
+            # IAM の description は ASCII / Latin-1 しか通らないので英語で書く
+            # （CfnOutput の description は日本語で問題ない）
+            description="Lets the managed knowledge base read the source of record in S3",
+        )
+        kb_role.add_to_policy(
+            iam.PolicyStatement(
+                sid="S3ListBucket",
+                actions=["s3:ListBucket"],
+                resources=[self.bucket.bucket_arn],
+                conditions={"StringEquals": {"aws:ResourceAccount": Aws.ACCOUNT_ID}},
+            )
+        )
+        kb_role.add_to_policy(
+            iam.PolicyStatement(
+                sid="S3GetObject",
+                actions=["s3:GetObject"],
+                resources=[f"{self.bucket.bucket_arn}/*"],
+                conditions={"StringEquals": {"aws:ResourceAccount": Aws.ACCOUNT_ID}},
+            )
+        )
+
+        # ------------------------------------------------------------------
+        # Managed KB（L1b）
+        # ------------------------------------------------------------------
+        # §4.4：ハイブリッド検索が常時 ON。固有名詞と doc_id の引き当てにこれが要る。
+        # embeddingModelType は KB 作成後に変更できない（§10-5）。
+        self.knowledge_base = bedrock.CfnKnowledgeBase(
+            self,
+            "KnowledgeBase",
+            name=f"kai-knowledge-{Aws.ACCOUNT_ID}",
+            role_arn=kb_role.role_arn,
+            description="架空案件 KAI の decision / knowledge / meeting",
+            knowledge_base_configuration=bedrock.CfnKnowledgeBase.KnowledgeBaseConfigurationProperty(
+                type="MANAGED",
+                managed_knowledge_base_configuration=(
+                    bedrock.CfnKnowledgeBase.ManagedKnowledgeBaseConfigurationProperty(
+                        embedding_model_type="MANAGED",
+                    )
+                ),
+            ),
+        )
+        self.knowledge_base.node.add_dependency(kb_role)
+
+        # ------------------------------------------------------------------
+        # データソース（L1b）
+        # ------------------------------------------------------------------
+        # chunkingStrategy: NONE = 1ファイル 1チャンク。13ファイル各数KBなので分割不要で、
+        # ドキュメント全体が丸ごと1件で返る＝引き当ての確実性が最大になる（§4.4）。
+        # データソース作成後は変更できない（§10-5）。
+        self.data_source = bedrock.CfnDataSource(
+            self,
+            "KnowledgeDataSource",
+            knowledge_base_id=self.knowledge_base.attr_knowledge_base_id,
+            name="s3-knowledge-base",
+            # Managed KB のデータソースは type: "S3" ではなく
+            # MANAGED_KNOWLEDGE_BASE_CONNECTOR で、S3 はその中の connectorParameters
+            # として指定する。type: "S3" を渡すと
+            # 「Unsupported data source type for MANAGED knowledge base type」で落ちる。
+            # KB が見るのは knowledge_base/ prefix だけ。raw/ は取り込まない（§5.1）
+            data_source_configuration=bedrock.CfnDataSource.DataSourceConfigurationProperty(
+                type="MANAGED_KNOWLEDGE_BASE_CONNECTOR",
+                managed_knowledge_base_connector_configuration=(
+                    bedrock.CfnDataSource.ManagedKnowledgeBaseConnectorConfigurationProperty(
+                        connector_parameters={
+                            "type": "S3",
+                            "version": "1",
+                            "connectionConfiguration": {
+                                "bucketName": self.bucket.bucket_name,
+                                "bucketOwnerAccountId": Aws.ACCOUNT_ID,
+                            },
+                            "filterConfiguration": {
+                                "inclusionPrefixes": ["knowledge_base/"],
+                            },
+                        },
+                    )
+                ),
+            ),
+            # chunkingConfiguration は指定しない。
+            # embeddingModelType: MANAGED と chunkingStrategy は併用できず、
+            # 指定すると「A chunking strategy cannot be specified with a managed
+            # embedding model」で落ちる。§4.4 は NONE を前提に書かれているが、
+            # 同じ節が「マネージド reranker のために MANAGED のまま触らない」とも
+            # 言っており、両立しない。ハイブリッド検索と reranker を取り、
+            # 既定チャンキング（fixed-size 300 トークン / 20% overlap）を受け入れる。
+            # 正本は数百トークンなので多くは 1 チャンクに収まる。全文が要るときは
+            # get_document が S3 を直読みするので、出力契約のルール1は保たれる。
+            # 作り直しを繰り返す前提なので、データソースを消したらベクタも消す
+            data_deletion_policy="DELETE",
+        )
+
+        # ------------------------------------------------------------------
         CfnOutput(
             self,
             "KnowledgeBucketName",
             value=self.bucket.bucket_name,
             description="正本を置く S3 バケット。KAI_KNOWLEDGE_BUCKET に設定する",
+        )
+        CfnOutput(
+            self,
+            "KnowledgeBaseId",
+            value=self.knowledge_base.attr_knowledge_base_id,
+            description="Managed KB の ID。KAI_KB_ID に設定する",
+        )
+        CfnOutput(
+            self,
+            "DataSourceId",
+            value=self.data_source.attr_data_source_id,
+            description="S3 データソースの ID。Ingestion job の起動に使う",
         )
