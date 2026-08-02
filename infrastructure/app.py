@@ -15,6 +15,7 @@ import aws_cdk as cdk
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from stacks.knowledge_stack import KnowledgeStack  # noqa: E402
+from stacks.slack_stack import SlackStack  # noqa: E402
 
 app = cdk.App()
 
@@ -24,5 +25,12 @@ env = cdk.Environment(
 )
 
 KnowledgeStack(app, "KaiKnowledgeStack", env=env)
+
+# Slack は Runtime の ARN が要るので、渡されたときだけ作る。
+# ARN は AgentCore CLI 側の CDK が持っているので context で受ける:
+#   cdk deploy KaiSlackStack -c runtimeArn=arn:aws:bedrock-agentcore:...
+runtime_arn = app.node.try_get_context("runtimeArn")
+if runtime_arn:
+    SlackStack(app, "KaiSlackStack", runtime_arn=runtime_arn, env=env)
 
 app.synth()
