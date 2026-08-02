@@ -1,0 +1,8 @@
+[
+  {
+    "name": "personal",
+    "description": "デモ用の個人アカウント",
+    "account": "000000000000",
+    "region": "ap-northeast-1"
+  }
+]

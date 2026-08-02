@@ -1,0 +1,17 @@
+# AgentCore Runtime のコンテナに入れる依存（L1d）。
+#
+# ローカル開発は pyproject.toml の方を使う。ここは Runtime だけが読む。
+# バージョンはローカルで 12/12 PASS したときのものに固定する ―― 当日「手元では
+# 動いたのに」を避けるため。
+#
+# knowledge_base/ は container に入れない。正本は S3 から読む（KAI_KNOWLEDGE_SOURCE=s3）。
+
+strands-agents==1.50.2
+boto3==1.43.61
+PyYAML==6.0.3
+
+# BedrockAgentCoreApp（/invocations・/ping・HealthyBusy を持つ）
+bedrock-agentcore==1.19.0
+
+# トレースを CloudWatch GenAI Observability に流す（§4.6）
+aws-opentelemetry-distro==0.19.0

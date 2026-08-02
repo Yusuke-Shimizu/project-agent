@@ -13,6 +13,11 @@ dependencies = [
 dev = ["pytest>=8.0"]
 # CDK は infrastructure/ でしか使わないので本体の依存には入れない
 infra = ["aws-cdk-lib>=2.150.0", "constructs>=10.0.0"]
+runtime = [
+    "aws-opentelemetry-distro>=0.19.0",
+    "bedrock-agentcore>=1.19.0",
+    "bedrock-agentcore-starter-toolkit>=0.3.11",
+]
 
 [build-system]
 requires = ["hatchling"]

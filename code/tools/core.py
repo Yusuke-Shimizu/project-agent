@@ -197,22 +197,48 @@ def _default_root() -> pathlib.Path:
     return pathlib.Path(__file__).resolve().parents[2] / "knowledge_base"
 
 
+#: 正本を置く CloudFormation スタック。バケット名の解決に使う
+STACK_NAME = "KaiKnowledgeStack"
+
+
+def resolve_bucket() -> str:
+    """バケット名を環境変数か CloudFormation の出力から決める。
+
+    バケット名にはアカウント ID が入る。**このリポジトリは public なので設定ファイルに
+    literal で書かない**。`KAI_KNOWLEDGE_BUCKET` が無ければスタックの出力から引く
+    （Runtime の実行ロールに `cloudformation:DescribeStacks` が1つ増えるだけ）。
+    """
+    if bucket := os.environ.get("KAI_KNOWLEDGE_BUCKET"):
+        return bucket
+
+    import boto3
+
+    cfn = boto3.client(
+        "cloudformation", region_name=os.environ.get("AWS_REGION", "ap-northeast-1")
+    )
+    stacks = cfn.describe_stacks(StackName=STACK_NAME)["Stacks"]
+    for output in stacks[0].get("Outputs", []):
+        if output["OutputKey"] == "KnowledgeBucketName":
+            return output["OutputValue"]
+    raise RuntimeError(
+        f"{STACK_NAME} に KnowledgeBucketName の出力が無い。"
+        "KAI_KNOWLEDGE_BUCKET を明示するか、先に cdk deploy する"
+    )
+
+
 def build_source() -> DocumentSource:
     """環境変数から読み口を決める。既定はローカル。
 
     KAI_KNOWLEDGE_SOURCE = local | s3
     KAI_KNOWLEDGE_ROOT   = local のときの knowledge_base/ のパス
-    KAI_KNOWLEDGE_BUCKET = s3 のときのバケット名
+    KAI_KNOWLEDGE_BUCKET = s3 のときのバケット名（省略時はスタックの出力から引く）
     KAI_KNOWLEDGE_PREFIX = s3 のときの prefix（既定 knowledge_base/）
     """
     kind = os.environ.get("KAI_KNOWLEDGE_SOURCE", "local").lower()
     if kind == "s3":
-        bucket = os.environ.get("KAI_KNOWLEDGE_BUCKET")
-        if not bucket:
-            raise RuntimeError(
-                "KAI_KNOWLEDGE_SOURCE=s3 のときは KAI_KNOWLEDGE_BUCKET が要る"
-            )
-        return S3Source(bucket, os.environ.get("KAI_KNOWLEDGE_PREFIX", "knowledge_base/"))
+        return S3Source(
+            resolve_bucket(), os.environ.get("KAI_KNOWLEDGE_PREFIX", "knowledge_base/")
+        )
     if kind == "local":
         root = os.environ.get("KAI_KNOWLEDGE_ROOT")
         return LocalSource(pathlib.Path(root) if root else _default_root())
