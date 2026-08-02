@@ -23,8 +23,8 @@ from __future__ import annotations
 import os
 import pathlib
 import re
+import threading
 from dataclasses import dataclass
-from functools import lru_cache
 
 import yaml
 
@@ -245,14 +245,28 @@ def build_source() -> DocumentSource:
     raise RuntimeError(f"KAI_KNOWLEDGE_SOURCE が不正: {kind}")
 
 
-@lru_cache(maxsize=1)
+#: 正本のキャッシュ。ロックで守るのは、**Strands がツールを並列に呼ぶ**ため。
+#: lru_cache だと同時にミスした分だけ実体が走り、L1d のトレースでは
+#: 3 並列の search が 14 ファイル × 3 = 42 回の S3.GetObject を発生させていた。
+_CACHE: tuple[Document, ...] | None = None
+_CACHE_LOCK = threading.Lock()
+
+
 def _load_all() -> tuple[Document, ...]:
-    return tuple(build_source().load_all())
+    global _CACHE
+    if _CACHE is None:
+        with _CACHE_LOCK:
+            # ロック待ちの間に他のスレッドが埋めている可能性があるので、もう一度見る
+            if _CACHE is None:
+                _CACHE = tuple(build_source().load_all())
+    return _CACHE
 
 
 def reset_cache() -> None:
     """データを書き換えた直後に読み直したいとき用。"""
-    _load_all.cache_clear()
+    global _CACHE
+    with _CACHE_LOCK:
+        _CACHE = None
 
 
 # --------------------------------------------------------------------------

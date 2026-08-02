@@ -12,7 +12,12 @@ dependencies = [
     "pyyaml>=6.0",
     # BedrockAgentCoreApp（/invocations・/ping・HealthyBusy）
     "bedrock-agentcore>=1.19.0",
-    # トレースを CloudWatch GenAI Observability に流す（§4.6）
+    # ADOT。**これが無いとスパンが 1 本も出ない**（L1d で A/B 実測）。
+    # ドキュメントは Runtime ホスト型について「no additional OTEL libraries or
+    # configuration are needed」と書いているが、--type byo で既存の pyproject を
+    # 使う場合は当てはまらない。CLI の雛形には最初から入っているため。
+    # 起動時に "Attempting to instrument while already instrumented" が出るが、
+    # スパンは正常に出るので無視してよい（§10-21）。
     "aws-opentelemetry-distro>=0.19.0",
 ]
 

@@ -13,8 +13,20 @@ architecture_v1.md §4.2 のとおり、`BedrockAgentCoreApp` を使い**自前 
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
 from runtime.agent import build_agent
+from tools import core
 
 app = BedrockAgentCoreApp()
+
+# 正本を起動時に読み込んでおく（プロセスごとに1回）。
+#
+# これをやらないと、最初のリクエストの**最中に** S3 の読み込みが走る。core.py の
+# キャッシュはロックで守ってあるので同一プロセス内では1回に収まるが、コンテナは
+# 複数プロセスで動く（L1d のトレースで instance.id が2つ確認できた）ので、
+# プロセス数だけリクエスト中に読み込みが入る。
+#
+# トレースを見せるデモなので、**リクエストのトレースに S3 アクセスを並べない**方を取る。
+# 起動が 0.5 秒ほど伸びるが、初期化のタイムアウト（30秒）には十分収まる。
+core._load_all()
 
 
 @app.entrypoint
