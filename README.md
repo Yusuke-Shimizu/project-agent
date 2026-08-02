@@ -4,14 +4,14 @@
 Context Agent）。技術勉強会の登壇デモとして作っている。
 
 段階的に積み上げる。**1 段 = 1 つの差し替え、判定は毎回 `run_demo_script.py` の全問 PASS。**
-現在 **L1b（KB を作って Ingestion）まで**。
+現在 **L1c（search を KB に差し替え）まで**。
 
 | 段 | 中身 | 状態 |
 | --- | --- | --- |
 | L0 | ローカルの Strands + `knowledge_base/` 直読み。台本 4 問に根拠付きで答えられる | ✅ |
 | L1a | 正本を S3 に置く（読み口は直読みのまま。KB はまだ作らない） | ✅ |
 | L1b | Managed KB を作って Ingestion（`search` はまだ差し替えない） | ✅ |
-| L1c | `search` の中身を KB の Retrieve に差し替え | — |
+| L1c | `search` の中身を KB の Retrieve に差し替え | ✅ |
 | L1d | AgentCore Runtime にデプロイ | — |
 | L2 | Slack App + API GW + Lambda×2 | — |
 | L3 | ツールを Lambda に出し Gateway の MCP ターゲットとして公開 | — |
@@ -78,6 +78,13 @@ export KAI_KNOWLEDGE_SOURCE=s3
 uv run python code/scripts/run_demo_script.py
 ```
 
+検索そのものを KB に差し替える（L1c）:
+
+```sh
+export KAI_SEARCH=kb KAI_KB_ID=...   # ID は seed_knowledge.py の出力に出る
+uv run python code/scripts/run_demo_script.py --repeat 3
+```
+
 `run_demo_script.py` は台本 4 問（矛盾／superseded／暗黙知／根拠なし）を流し、
 期待する doc_id を根拠に挙げているかを機械的に判定する。**当日前にこれを複数回流して
 回答が安定していることを確認する。**
@@ -88,6 +95,9 @@ uv run python code/scripts/run_demo_script.py
 | --- | --- | --- |
 | `KAI_KNOWLEDGE_SOURCE` | `local` | 正本の読み口。`s3` に切り替えると S3 を読む |
 | `KAI_KNOWLEDGE_BUCKET` | — | `s3` のときのバケット名 |
+| `KAI_SEARCH` | `local` | 検索の実装。`kb` にすると Managed KB の Retrieve を使う |
+| `KAI_KB_ID` | — | `kb` のときの Knowledge Base ID |
+| `KAI_RERANK` | `managed` | マネージド reranker。`none` で切る |
 | `KAI_MODEL_ID` | `global.anthropic.claude-sonnet-5` | Bedrock の推論プロファイル |
 | `AWS_REGION` | `ap-northeast-1` | リージョン |
 

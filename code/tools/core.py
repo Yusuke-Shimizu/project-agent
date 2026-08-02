@@ -268,6 +268,115 @@ def _score(doc: Document, query: str) -> float:
     return score / (1 + len(q)) if score else 0.0
 
 
+def _search_local(
+    query: str, doc_type: str | None, status: str | None, limit: int
+) -> list[dict]:
+    """L0 の全件スキャン。AWS に触らないので、テストとオフラインの開発はこちら。"""
+    docs = _load_all()
+    if doc_type:
+        docs = tuple(d for d in docs if d.doc_type == doc_type)
+    if status:
+        docs = tuple(d for d in docs if d.status == status)
+
+    scored = [(s, d) for d in docs if (s := _score(d, query)) > 0]
+    scored.sort(key=lambda pair: (-pair[0], pair[1].doc_id))
+    return [d.as_search_hit() for _, d in scored[:limit]]
+
+
+# --------------------------------------------------------------------------
+# 検索（L1c: Managed KB の Retrieve）
+# --------------------------------------------------------------------------
+
+
+def merge_kb_results(results: list[dict]) -> list[tuple[str, float]]:
+    """Retrieve の結果を doc_id ごとに束ね、(doc_id, スコア) を降順で返す。
+
+    Managed KB は同じドキュメントについて「本文中の抜粋」と「front matter 込みの全文」
+    を**別エントリ**で返す（smart parsing の副産物。スコアも別々に付く）。束ねないと
+    エージェントが同じ doc を2回見ることになり、`numberOfResults` の意味も狂う。
+
+    これは hierarchical chunking が「子チャンクを引いて親チャンクに差し替える」のと
+    同じ考え方を手でやっている。本来は chunkingStrategy で任せたいところだが、
+    `embeddingModelType: MANAGED` とは併用できないので（§10-11）自前で持つ。
+
+    スコアは**最大値**を採る。抜粋の方が高スコアなのは「クエリに近い箇所がそこにある」
+    という情報なので、順位付けには活かす。
+    """
+    best: dict[str, float] = {}
+    for result in results:
+        doc_id = (result.get("metadata") or {}).get("doc_id")
+        if not doc_id:
+            continue
+        score = float(result.get("score") or 0.0)
+        doc_id = str(doc_id)
+        if score > best.get(doc_id, -1.0):
+            best[doc_id] = score
+    return sorted(best.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
+def _search_kb(
+    query: str, doc_type: str | None, status: str | None, limit: int
+) -> list[dict]:
+    """Managed KB の Retrieve で当てて、本文は正本から取り直す。
+
+    索引は「どの doc か」を決めるためだけに使い、`body` は `_load_all()`（＝正本）
+    から引く。索引が抜粋しか返さなくても全文が渡り、`status` と `supersedes` も必ず
+    入る。「Git が正本、S3 は配信先、索引は索引」（§5.2）をコードでもそのまま守る。
+    """
+    import boto3
+
+    kb_id = os.environ.get("KAI_KB_ID")
+    if not kb_id:
+        raise RuntimeError(
+            "KAI_SEARCH=kb のときは KAI_KB_ID が要る。"
+            "seed_knowledge.py の出力か、CloudFormation の KaiKnowledgeStack から取る"
+        )
+
+    # Managed KB は vectorSearchConfiguration を受け付けない（§10-10）
+    config: dict = {"numberOfResults": max(limit * 3, 12)}
+
+    conditions = []
+    if doc_type:
+        conditions.append({"equals": {"key": "doc_type", "value": doc_type}})
+    if status:
+        conditions.append({"equals": {"key": "status", "value": status}})
+    if len(conditions) == 1:
+        config["filter"] = conditions[0]
+    elif conditions:
+        config["filter"] = {"andAll": conditions}
+
+    # マネージド reranker。MANAGED 埋め込みを選んだ理由がこれなので既定で使う
+    if os.environ.get("KAI_RERANK", "managed").lower() != "none":
+        config["rerankingModelType"] = "MANAGED"
+
+    client = boto3.client(
+        "bedrock-agent-runtime",
+        region_name=os.environ.get("AWS_REGION", "ap-northeast-1"),
+    )
+    response = client.retrieve(
+        knowledgeBaseId=kb_id,
+        retrievalQuery={"text": query},
+        retrievalConfiguration={"managedSearchConfiguration": config},
+    )
+
+    by_id = {doc.doc_id: doc for doc in _load_all()}
+    hits = []
+    for doc_id, _score_value in merge_kb_results(response.get("retrievalResults", [])):
+        doc = by_id.get(doc_id)
+        if doc is None:
+            # 索引にあって正本に無い＝seed 漏れか消し忘れ。黙って捨てる方が安全
+            continue
+        # KB 側でも絞っているが、契約は呼び出し側との約束なのでここでも担保する
+        if doc_type and doc.doc_type != doc_type:
+            continue
+        if status and doc.status != status:
+            continue
+        hits.append(doc.as_search_hit())
+        if len(hits) >= limit:
+            break
+    return hits
+
+
 def search_project_knowledge(
     query: str,
     doc_type: str | None = None,
@@ -275,6 +384,9 @@ def search_project_knowledge(
     limit: int = 5,
 ) -> list[dict]:
     """案件の decision / knowledge / meeting を検索する。
+
+    中身は `KAI_SEARCH` で切り替わる（既定 `local`）。**呼び出し側から見た形は
+    L0 から変わらない**ので、`local_tools.py` もプロンプトも無傷のまま。
 
     Args:
         query: 検索クエリ（自然文でよい）
@@ -286,15 +398,12 @@ def search_project_knowledge(
         ヒットしたドキュメントのリスト。本文全文（body）を含む。
         該当が無ければ空リスト（呼び出し側に「根拠なし」と言わせるため）。
     """
-    docs = _load_all()
-    if doc_type:
-        docs = tuple(d for d in docs if d.doc_type == doc_type)
-    if status:
-        docs = tuple(d for d in docs if d.status == status)
-
-    scored = [(s, d) for d in docs if (s := _score(d, query)) > 0]
-    scored.sort(key=lambda pair: (-pair[0], pair[1].doc_id))
-    return [d.as_search_hit() for _, d in scored[:limit]]
+    kind = os.environ.get("KAI_SEARCH", "local").lower()
+    if kind == "kb":
+        return _search_kb(query, doc_type, status, limit)
+    if kind == "local":
+        return _search_local(query, doc_type, status, limit)
+    raise RuntimeError(f"KAI_SEARCH が不正: {kind}")
 
 
 def get_document(doc_id: str) -> dict:

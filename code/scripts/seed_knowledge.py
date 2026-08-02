@@ -194,6 +194,10 @@ def main() -> None:
     print("読み口を S3 に向けるには:")
     print("  export KAI_KNOWLEDGE_SOURCE=s3")
     print(f"  export KAI_KNOWLEDGE_BUCKET={bucket}")
+    if kb_id:
+        print("検索そのものを KB に向けるには:")
+        print("  export KAI_SEARCH=kb")
+        print(f"  export KAI_KB_ID={kb_id}")
 
 
 if __name__ == "__main__":

@@ -109,3 +109,38 @@ def test_該当なしは空リスト():
 
 def test_limitを超えて返さない():
     assert len(core.search_project_knowledge("テナント", limit=2)) == 2
+
+
+# --- KB 結果の束ね（L1c）-----------------------------------------------------
+# Managed KB は同じ doc を「抜粋」と「全文」の2エントリで返す。束ねないと
+# エージェントが同じ doc を2回見る。AWS は呼ばず、返却形だけを模して検証する。
+
+
+def _hit(doc_id, score):
+    return {"metadata": {"doc_id": doc_id}, "score": score}
+
+
+def test_同じdocの複数エントリが1件に束ねられる():
+    merged = core.merge_kb_results([_hit("DEC-004", 0.55), _hit("DEC-004", 0.41)])
+    assert merged == [("DEC-004", 0.55)]  # スコアは最大値を採る
+
+
+def test_スコアの降順に並ぶ():
+    merged = core.merge_kb_results(
+        [_hit("DEC-004", 0.41), _hit("MTG-2026-03-15", 0.58), _hit("DEC-004", 0.55)]
+    )
+    assert merged == [("MTG-2026-03-15", 0.58), ("DEC-004", 0.55)]
+
+
+def test_同点なら_doc_id順で安定する():
+    merged = core.merge_kb_results([_hit("KNW-002", 0.5), _hit("DEC-001", 0.5)])
+    assert merged == [("DEC-001", 0.5), ("KNW-002", 0.5)]
+
+
+def test_doc_idの無いエントリは捨てる():
+    # メタデータが乗っていない結果は正本と突き合わせられないので使わない
+    assert core.merge_kb_results([{"score": 0.9}, {"metadata": {}, "score": 0.8}]) == []
+
+
+def test_スコア欠落は0扱いで落ちない():
+    assert core.merge_kb_results([_hit("DEC-001", None)]) == [("DEC-001", 0.0)]
