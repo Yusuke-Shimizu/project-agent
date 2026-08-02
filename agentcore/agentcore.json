@@ -13,10 +13,24 @@
       "build": "CodeZip",
       "entrypoint": "runtime/app.py",
       "codeLocation": "code/",
-      "runtimeVersion": "PYTHON_3_14",
+      "runtimeVersion": "PYTHON_3_13",
       "networkMode": "PUBLIC",
       "protocol": "HTTP",
-      "authorizerType": "AWS_IAM"
+      "authorizerType": "AWS_IAM",
+      "envVars": [
+        {
+          "name": "KAI_SEARCH",
+          "value": "kb"
+        },
+        {
+          "name": "KAI_KNOWLEDGE_SOURCE",
+          "value": "s3"
+        },
+        {
+          "name": "KAI_KB_ID",
+          "value": "XNDRI6Y0EX"
+        }
+      ]
     }
   ],
   "memories": [],

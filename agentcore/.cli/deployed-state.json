@@ -1,3 +1,17 @@
 {
-  "targets": {}
+  "targets": {
+    "personal": {
+      "resources": {
+        "runtimes": {
+          "kaiContextAgent": {
+            "runtimeId": "kaiContextAgent_kaiContextAgent-GeabsU6F5q",
+            "runtimeArn": "arn:aws:bedrock-agentcore:ap-northeast-1:889119567707:runtime/kaiContextAgent_kaiContextAgent-GeabsU6F5q",
+            "roleArn": "arn:aws:iam::889119567707:role/AgentCore-kaiContextAgent-ApplicationAgentKaiContex-CPJ2rgYOeguX"
+          }
+        },
+        "stackName": "AgentCore-kaiContextAgent-personal",
+        "deployHash": "d809c87ea136501c"
+      }
+    }
+  }
 }

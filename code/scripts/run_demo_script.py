@@ -14,6 +14,7 @@ architecture_v1.md §1 のとおり、v1 の要件は汎用性ではなく
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 
@@ -22,8 +23,12 @@ from runtime.agent import build_agent
 #: doc_id の書式
 DOC_ID = re.compile(r"\b(?:DEC-\d+[ab]?|KNW-\d+|MTG-\d{4}-\d{2}-\d{2})\b")
 
-#: 「正本に該当の記録が無い」と明言できているかの判定に使う言い回し
-ABSENCE = re.compile(r"見つか(らな|りませ)|存在し(ない|ませ)|記録は(無|な)い")
+#: 「正本に該当の記録が無い」と明言できているかの判定に使う言い回し。
+#: 同じ意味を複数の言い方でするので、機械判定はここを取りこぼしやすい。
+#: 「見当たらない」を落として一度 FAIL を出したので足した（意味は同じ）。
+ABSENCE = re.compile(
+    r"見つか(らな|りませ)|見当たら(な|ませ)|存在し(ない|ませ)|記録は(無|な)い"
+)
 
 DEMO_SCRIPT = [
     {
@@ -83,8 +88,51 @@ def check(question: dict, answer: str) -> tuple[bool, list[str]]:
     return not problems, problems
 
 
+def invoke_runtime(runtime_arn: str, prompt: str, region: str) -> str:
+    """AgentCore Runtime を叩いて本文だけ取り出す（L1d）。
+
+    ローカルの Agent と入れ替えても判定ロジックは同じものを使う。**同じ物差しで
+    測れないと「デプロイして答えが変わったか」が分からない**ため。
+    """
+    import json
+    import uuid
+
+    import boto3
+
+    client = boto3.client("bedrock-agentcore", region_name=region)
+    response = client.invoke_agent_runtime(
+        agentRuntimeArn=runtime_arn,
+        # runtimeSessionId は 33 文字以上でないと ValidationException（§10-1）。
+        # 問ごとに別セッションにして、前の問の文脈を持ち越さない
+        runtimeSessionId=str(uuid.uuid4()),
+        payload=json.dumps({"prompt": prompt}).encode("utf-8"),
+    )
+    body = json.loads(response["response"].read().decode("utf-8"))
+    if "error" in body:
+        raise RuntimeError(body["error"])
+    return str(body.get("result", ""))
+
+
+def resolve_runtime_arn(region: str) -> str:
+    import os
+
+    if arn := os.environ.get("KAI_RUNTIME_ARN"):
+        return arn
+    import boto3
+
+    cfn = boto3.client("cloudformation", region_name=region)
+    stacks = cfn.describe_stacks(StackName="AgentCore-kaiContextAgent-personal")["Stacks"]
+    for output in stacks[0].get("Outputs", []):
+        if "RuntimeArn" in output["OutputKey"]:
+            return output["OutputValue"]
+    raise SystemExit("Runtime の ARN が見つからない。KAI_RUNTIME_ARN を設定する")
+
+
 def run_once(agent, question: dict, show: bool) -> bool:
-    answer = answer_text(agent(question["prompt"]))
+    if isinstance(agent, tuple):  # ("runtime", arn, region)
+        answer = invoke_runtime(agent[1], question["prompt"], agent[2])
+    else:
+        answer = answer_text(agent(question["prompt"]))
 
     ok, problems = check(question, answer)
     mark = "PASS" if ok else "FAIL"
@@ -108,7 +156,17 @@ def main() -> None:
     parser.add_argument("--repeat", type=int, default=1, help="各問を何回流すか")
     parser.add_argument("--only", help="Q1 など、特定の問だけ流す")
     parser.add_argument("--show", action="store_true", help="回答の全文を表示する")
+    parser.add_argument(
+        "--runtime",
+        action="store_true",
+        help="ローカルではなく AgentCore Runtime を叩く（L1d の完了条件）",
+    )
+    parser.add_argument("--region", default=os.environ.get("AWS_REGION", "ap-northeast-1"))
     args = parser.parse_args()
+
+    runtime_arn = resolve_runtime_arn(args.region) if args.runtime else None
+    if runtime_arn:
+        print(f"AgentCore Runtime: {runtime_arn.rsplit('/', 1)[-1]}\n")
 
     questions = DEMO_SCRIPT
     if args.only:
@@ -124,7 +182,11 @@ def main() -> None:
         for question in questions:
             # 問ごとに新しい Agent を作る＝前の問の文脈を持ち越さない。
             # 当日も 1 問ずつ独立したスレッドで流す想定
-            agent = build_agent(stream=False)
+            agent = (
+                ("runtime", runtime_arn, args.region)
+                if runtime_arn
+                else build_agent(stream=False)
+            )
             total += 1
             if not run_once(agent, question, args.show):
                 failures += 1

@@ -4,7 +4,7 @@
 Context Agent）。技術勉強会の登壇デモとして作っている。
 
 段階的に積み上げる。**1 段 = 1 つの差し替え、判定は毎回 `run_demo_script.py` の全問 PASS。**
-現在 **L1c（search を KB に差し替え）まで**。
+現在 **L1d（AgentCore Runtime にデプロイ）まで**。
 
 | 段 | 中身 | 状態 |
 | --- | --- | --- |
@@ -12,7 +12,7 @@ Context Agent）。技術勉強会の登壇デモとして作っている。
 | L1a | 正本を S3 に置く（読み口は直読みのまま。KB はまだ作らない） | ✅ |
 | L1b | Managed KB を作って Ingestion（`search` はまだ差し替えない） | ✅ |
 | L1c | `search` の中身を KB の Retrieve に差し替え | ✅ |
-| L1d | AgentCore Runtime にデプロイ | — |
+| L1d | AgentCore Runtime にデプロイ | ✅ |
 | L2 | Slack App + API GW + Lambda×2 | — |
 | L3 | ツールを Lambda に出し Gateway の MCP ターゲットとして公開 | — |
 
@@ -31,6 +31,8 @@ Context Agent）。技術勉強会の登壇デモとして作っている。
 | [code/scripts/check_retrieve.py](code/scripts/check_retrieve.py) | KB の引き当てだけを確かめる（エージェントを通さない） |
 | [code/scripts/teardown.sh](code/scripts/teardown.sh) | デモ用リソースの後片付け |
 | [infrastructure/](infrastructure/) | CDK (Python)。`KaiKnowledgeStack` が S3 バケットと Managed KB を持つ |
+| [code/runtime/app.py](code/runtime/app.py) | AgentCore Runtime の入口。`build_agent()` を呼ぶだけ |
+| [agentcore/](agentcore/) | AgentCore CLI の設定と CDK。`aws-targets.json` は各自で作る |
 
 ## 使い方
 
@@ -84,6 +86,19 @@ uv run python code/scripts/run_demo_script.py
 export KAI_SEARCH=kb KAI_KB_ID=...   # ID は seed_knowledge.py の出力に出る
 uv run python code/scripts/run_demo_script.py --repeat 3
 ```
+
+AgentCore Runtime にデプロイして、そこで台本を流す（L1d）:
+
+```sh
+cp agentcore/aws-targets.json.example agentcore/aws-targets.json   # 自分のアカウントを書く
+npx -y @aws/agentcore@latest deploy --target personal --yes
+npx -y aws-cdk@2.1134.0 deploy KaiKnowledgeStack -c runtimeRoleArn=<出力された RoleArn>
+uv run python code/scripts/run_demo_script.py --runtime --repeat 3
+```
+
+Runtime のロールは AgentCore CLI 側の CDK が作るが、**KB とバケットは
+`KaiKnowledgeStack` の持ち物**なので、そこへのアクセス許可は後者から context 経由で
+与える。§5.2 のとおり `s3:PutObject` は与えない（エージェントは read-only）。
 
 `run_demo_script.py` は台本 4 問（矛盾／superseded／暗黙知／根拠なし）を流し、
 期待する doc_id を根拠に挙げているかを機械的に判定する。**当日前にこれを複数回流して

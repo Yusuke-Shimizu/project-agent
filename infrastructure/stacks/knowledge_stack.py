@@ -148,6 +148,46 @@ class KnowledgeStack(Stack):
         )
 
         # ------------------------------------------------------------------
+        # AgentCore Runtime の実行ロールへの付与（L1d）
+        # ------------------------------------------------------------------
+        # Runtime は AgentCore CLI（別の CDK スタック）が作るので、ロールはこちらの
+        # 持ち物ではない。だが **KB とバケットはこちらの持ち物**なので、それらへの
+        # アクセス許可はここで定義するのが筋。ロール ARN は context で受ける:
+        #
+        #   cdk deploy KaiKnowledgeStack -c runtimeRoleArn=arn:aws:iam::...:role/...
+        #
+        # §5.2 のとおり **s3:PutObject は与えない**。エージェントは read-only で、
+        # 「判断は人に残す」を権限でも表現する。
+        runtime_role_arn = self.node.try_get_context("runtimeRoleArn")
+        if runtime_role_arn:
+            runtime_role = iam.Role.from_role_arn(
+                self, "RuntimeRole", runtime_role_arn, mutable=True
+            )
+            runtime_role.add_to_principal_policy(
+                iam.PolicyStatement(
+                    sid="RetrieveFromKnowledgeBase",
+                    actions=["bedrock:Retrieve"],
+                    resources=[self.knowledge_base.attr_knowledge_base_arn],
+                )
+            )
+            runtime_role.add_to_principal_policy(
+                iam.PolicyStatement(
+                    sid="ReadSourceOfRecord",
+                    actions=["s3:GetObject", "s3:ListBucket"],
+                    resources=[self.bucket.bucket_arn, f"{self.bucket.bucket_arn}/*"],
+                )
+            )
+            runtime_role.add_to_principal_policy(
+                iam.PolicyStatement(
+                    sid="ResolveBucketNameFromStackOutput",
+                    # バケット名にアカウント ID が入るため設定に literal で書かず、
+                    # core.py の resolve_bucket() がスタックの出力から引く（§10-13）
+                    actions=["cloudformation:DescribeStacks"],
+                    resources=[self.stack_id],
+                )
+            )
+
+        # ------------------------------------------------------------------
         CfnOutput(
             self,
             "KnowledgeBucketName",
