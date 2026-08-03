@@ -4,7 +4,7 @@
 Context Agent）。技術勉強会の登壇デモとして作っている。
 
 段階的に積み上げる。**1 段 = 1 つの差し替え、判定は毎回 `run_demo_script.py` の全問 PASS。**
-現在 **L1d（AgentCore Runtime にデプロイ）まで**。
+現在 **L2（Slack）を配線中**。
 
 | 段 | 中身 | 状態 |
 | --- | --- | --- |
@@ -13,7 +13,7 @@ Context Agent）。技術勉強会の登壇デモとして作っている。
 | L1b | Managed KB を作って Ingestion（`search` はまだ差し替えない） | ✅ |
 | L1c | `search` の中身を KB の Retrieve に差し替え | ✅ |
 | L1d | AgentCore Runtime にデプロイ | ✅ |
-| L2 | Slack App + API GW + Lambda×2 | — |
+| L2 | Slack App + API GW + Lambda×2 | 🟡 AWS 側は疎通済み。Slack からのイベント配信が未確認 |
 | L3 | ツールを Lambda に出し Gateway の MCP ターゲットとして公開 | — |
 
 ## 構成
@@ -30,7 +30,9 @@ Context Agent）。技術勉強会の登壇デモとして作っている。
 | [code/scripts/seed_knowledge.py](code/scripts/seed_knowledge.py) | 正本を S3 に同期し `.metadata.json` を生成し、KB の Ingestion まで回す（CI の代役） |
 | [code/scripts/check_retrieve.py](code/scripts/check_retrieve.py) | KB の引き当てだけを確かめる（エージェントを通さない） |
 | [code/scripts/teardown.sh](code/scripts/teardown.sh) | デモ用リソースの後片付け |
-| [infrastructure/](infrastructure/) | CDK (Python)。`KaiKnowledgeStack` が S3 バケットと Managed KB を持つ |
+| [code/slack/ingress.py](code/slack/ingress.py) | Slack の受け口。署名検証して worker に非同期で投げ、即 200 を返す |
+| [code/slack/worker.py](code/slack/worker.py) | 「考え中…」を先に投げ、`InvokeAgentRuntime` の結果で `chat.update` する |
+| [infrastructure/](infrastructure/) | CDK (Python)。`KaiKnowledgeStack` が S3 バケットと Managed KB、`KaiSlackStack` が Slack の入口を持つ |
 | [code/runtime/app.py](code/runtime/app.py) | AgentCore Runtime の入口。`build_agent()` を呼ぶだけ |
 | [agentcore/](agentcore/) | AgentCore CLI の設定と CDK。`aws-targets.json` は各自で作る |
 
@@ -99,6 +101,31 @@ uv run python code/scripts/run_demo_script.py --runtime --repeat 3
 Runtime のロールは AgentCore CLI 側の CDK が作るが、**KB とバケットは
 `KaiKnowledgeStack` の持ち物**なので、そこへのアクセス許可は後者から context 経由で
 与える。§5.2 のとおり `s3:PutObject` は与えない（エージェントは read-only）。
+
+Slack から使えるようにする（L2）:
+
+```sh
+npx -y aws-cdk@2.1134.0 deploy KaiSlackStack -c runtimeArn=<出力された RuntimeArn>
+```
+
+`KaiSlackStack` は **Secrets Manager の箱だけ作り、値は入れない**（`REPLACE_ME` のまま）。
+Bot Token と Signing Secret は**本人が**入れる:
+
+```sh
+aws secretsmanager put-secret-value --secret-id kai/slack \
+  --secret-string '{"bot_token":"xoxb-...","signing_secret":"..."}'
+```
+
+Slack App 側では、出力された `SlackEventsUrl` を **Event Subscriptions** の Request URL に
+登録し、**Subscribe to bot events に `app_mention` を足して Save**、そのうえで
+**Reinstall to Workspace** する。Save が通っていないと Verified になってもイベントは来ない。
+必要なスコープは `app_mention:read` と `chat:write`。
+
+届いているかは ingress のログで分かる（**API Gateway に到達していなければ Slack 側の設定**）:
+
+```sh
+aws logs tail /aws/lambda/<SlackIngress の関数名> --follow
+```
 
 `run_demo_script.py` は台本 4 問（矛盾／superseded／暗黙知／根拠なし）を流し、
 期待する doc_id を根拠に挙げているかを機械的に判定する。**当日前にこれを複数回流して
