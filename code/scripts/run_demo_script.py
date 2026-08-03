@@ -78,6 +78,14 @@ def check(question: dict, answer: str) -> tuple[bool, list[str]]:
     """期待する doc_id を根拠に挙げているか。"""
     problems = []
 
+    # 本文ではなく `message` の dict がそのまま返っていないか。
+    #
+    # **L1d ではこれを見逃して 12/12 PASS を出していた。** doc_id は dict の中にも
+    # 現れるので、下の含有判定だけでは通ってしまう。Slack に繋いで初めて
+    # 「文章ではなく dict が貼られる」と分かった（§10-9）。物差しの側を直しておく。
+    if answer.lstrip().startswith("{") and "'content'" in answer:
+        problems.append("本文ではなく message の dict がそのまま返っている")
+
     for doc_id in question["expect"]:
         if doc_id not in answer:
             problems.append(f"{doc_id} を挙げていない")

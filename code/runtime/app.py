@@ -29,6 +29,18 @@ app = BedrockAgentCoreApp()
 core._load_all()
 
 
+def _answer(message) -> str:
+    """`result.message` から**本文だけ**を取り出す。
+
+    `message` は `{"role": ..., "content": [ブロック, ...]}` という形で、ブロックには
+    本文（`text`）以外に `reasoningContent` も混ざる。`str()` してそのまま返すと
+    Slack に **Python の dict がそのまま貼られる**（L2 の実測で発覚）。
+    出力契約（3ブロック）を守るのは `text` の中身なので、そこだけを繋ぐ。
+    """
+    blocks = message.get("content") or []
+    return "\n".join(b["text"] for b in blocks if "text" in b).strip()
+
+
 @app.entrypoint
 def invoke(payload, context):
     """1 リクエスト = 1 問。
@@ -43,7 +55,7 @@ def invoke(payload, context):
 
     # stream=False：標準出力に流さず、戻り値だけ受け取る
     result = build_agent(stream=False)(prompt)
-    return {"result": str(result.message)}
+    return {"result": _answer(result.message)}
 
 
 if __name__ == "__main__":
