@@ -10,10 +10,11 @@ architecture_v1.md §4.2 のとおり、`BedrockAgentCoreApp` を使い**自前 
     KAI_SEARCH=kb / KAI_KB_ID / KAI_KNOWLEDGE_SOURCE=s3 / KAI_KNOWLEDGE_BUCKET
 """
 
+import os
+
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
 from runtime.agent import build_agent
-from tools import core
 
 app = BedrockAgentCoreApp()
 
@@ -26,7 +27,14 @@ app = BedrockAgentCoreApp()
 #
 # トレースを見せるデモなので、**リクエストのトレースに S3 アクセスを並べない**方を取る。
 # 起動が 0.5 秒ほど伸びるが、初期化のタイムアウト（30秒）には十分収まる。
-core._load_all()
+#
+# **L3（Gateway）ではこれ自体が要らなくなった。** ツールが Lambda 側に移り、
+# Runtime は正本にも KB にも触らない ―― 触るのは Bedrock と Gateway だけ。
+# L3b のトレースに S3.GetObject が 168 本残っていて気づいた。
+if os.environ.get("KAI_TOOLS", "local").lower() != "gateway":
+    from tools import core
+
+    core._load_all()
 
 
 def _answer(message) -> str:
