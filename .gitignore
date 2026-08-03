@@ -28,3 +28,6 @@ __pycache__/
 
 # CDK
 cdk.out/
+
+# ツール Lambda のビルド成果物（tools_stack.py が synth 時に作る）
+.build/
