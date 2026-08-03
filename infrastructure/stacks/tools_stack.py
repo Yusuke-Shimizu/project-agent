@@ -234,14 +234,26 @@ class ToolsStack(Stack):
         #   cdk deploy KaiToolsStack -c runtimeRoleArn=arn:aws:iam::...:role/...
         runtime_role_arn = self.node.try_get_context("runtimeRoleArn")
         if runtime_role_arn:
+            # 構築 ID は KaiKnowledgeStack と**別名**にする。同じ "RuntimeRole" だと
+            # 両スタックが同じ論理 ID のインラインポリシーを作りにいって
+            # 「Policy resource was already managed by another stack」で落ちる
             runtime_role = iam.Role.from_role_arn(
-                self, "RuntimeRole", runtime_role_arn, mutable=True
+                self, "GatewayCallerRole", runtime_role_arn, mutable=True
             )
             runtime_role.add_to_principal_policy(
                 iam.PolicyStatement(
                     sid="InvokeToolGateway",
                     actions=["bedrock-agentcore:InvokeGateway"],
                     resources=[self.gateway.attr_gateway_arn],
+                )
+            )
+            runtime_role.add_to_principal_policy(
+                iam.PolicyStatement(
+                    sid="ResolveGatewayUrlFromStackOutput",
+                    # URL にアカウント由来の ID が入るため設定に書かず、
+                    # gateway.resolve_gateway_url() がスタックの出力から引く（§10-13）
+                    actions=["cloudformation:DescribeStacks"],
+                    resources=[self.stack_id],
                 )
             )
 

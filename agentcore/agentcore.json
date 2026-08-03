@@ -29,6 +29,10 @@
         {
           "name": "KAI_KB_ID",
           "value": "XNDRI6Y0EX"
+        },
+        {
+          "name": "KAI_TOOLS",
+          "value": "gateway"
         }
       ]
     }
