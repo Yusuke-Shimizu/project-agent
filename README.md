@@ -4,7 +4,7 @@
 Context Agent）。技術勉強会の登壇デモとして作っている。
 
 段階的に積み上げる。**1 段 = 1 つの差し替え、判定は毎回 `run_demo_script.py` の全問 PASS。**
-現在 **L2（Slack）を配線中**。
+現在 **L2（Slack 常駐）まで**。
 
 | 段 | 中身 | 状態 |
 | --- | --- | --- |
@@ -13,7 +13,7 @@ Context Agent）。技術勉強会の登壇デモとして作っている。
 | L1b | Managed KB を作って Ingestion（`search` はまだ差し替えない） | ✅ |
 | L1c | `search` の中身を KB の Retrieve に差し替え | ✅ |
 | L1d | AgentCore Runtime にデプロイ | ✅ |
-| L2 | Slack App + API GW + Lambda×2 | 🟡 AWS 側は疎通済み。Slack からのイベント配信が未確認 |
+| L2 | Slack App + API GW + Lambda×2 | ✅ |
 | L3 | ツールを Lambda に出し Gateway の MCP ターゲットとして公開 | — |
 
 ## 構成
@@ -118,8 +118,10 @@ aws secretsmanager put-secret-value --secret-id kai/slack \
 
 Slack App 側では、出力された `SlackEventsUrl` を **Event Subscriptions** の Request URL に
 登録し、**Subscribe to bot events に `app_mention` を足して Save**、そのうえで
-**Reinstall to Workspace** する。Save が通っていないと Verified になってもイベントは来ない。
-必要なスコープは `app_mention:read` と `chat:write`。
+**Reinstall to Workspace** する。必要なスコープは `app_mention:read` と `chat:write`。
+
+**Socket Mode は Off にする。** ON のままだと Slack は WebSocket でしか配信せず、
+Request URL が Verified でも API Gateway には何も届かない（§10-22）。
 
 届いているかは ingress のログで分かる（**API Gateway に到達していなければ Slack 側の設定**）:
 
