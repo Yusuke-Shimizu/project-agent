@@ -30,6 +30,11 @@ ABSENCE = re.compile(
     r"見つか(らな|りませ)|見当たら(な|ませ)|存在し(ない|ませ)|記録は(無|な)い"
 )
 
+#: 出力契約の3ブロック（§7）。**これを検証していなかった。**
+#: L2 で「全段 PASS なのに人の目に触れる場所で壊れていた」を踏んだので、
+#: 判定の穴を先に塞いでおく。契約が崩れていないことは doc_id の含有では測れない。
+BLOCKS = ("【指摘】", "【根拠】", "【確認してほしいこと】")
+
 DEMO_SCRIPT = [
     {
         "id": "Q1",
@@ -85,6 +90,12 @@ def check(question: dict, answer: str) -> tuple[bool, list[str]]:
     # 「文章ではなく dict が貼られる」と分かった（§10-9）。物差しの側を直しておく。
     if answer.lstrip().startswith("{") and "'content'" in answer:
         problems.append("本文ではなく message の dict がそのまま返っている")
+
+    # 出力契約が崩れていないか。差し替えのたびに「答えの中身」は見てきたが、
+    # **「答えの形」を見ていなかった**
+    for block in BLOCKS:
+        if block not in answer:
+            problems.append(f"{block} が無い")
 
     for doc_id in question["expect"]:
         if doc_id not in answer:
