@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -28,6 +29,14 @@ SECRET_ID = os.environ["SLACK_SECRET_ID"]
 
 SLACK_API = "https://slack.com/api"
 THINKING = "考え中…"
+
+#: やりとりをログに残すか。
+#:
+#: **リハーサルのたびに Runtime の otel-rt-logs を掘るのが手間だった**ので入れた。
+#: worker のログだけで「何を聞かれて何を返したか」が読めるようにする。
+#: 正本もデモの質問も**完全架空**なので、ここに本文が出ても差し支えない。
+#: 実データを扱う構成に持っていくときは、まずここを落とすこと。
+LOG_CONVERSATION = os.environ.get("KAI_LOG_CONVERSATION", "1") == "1"
 
 _bot_token: str | None = None
 
@@ -103,17 +112,27 @@ def handler(event, context):
         print(f"必要な項目が無いので何もしない: channel={channel} ts={thread_ts}")
         return
 
+    if LOG_CONVERSATION:
+        print(f"--- 質問 channel={channel} thread_ts={thread_ts}\n{prompt}")
+
     placeholder = _slack(
         "chat.postMessage",
         {"channel": channel, "thread_ts": thread_ts, "text": THINKING},
     )
     placeholder_ts = placeholder.get("ts")
 
+    started = time.monotonic()
     try:
         answer = _ask_agent(prompt, thread_ts)
     except Exception as exc:  # 落ちても沈黙させない。何が起きたかはスレッドに残す
         print(f"エージェントの呼び出しに失敗: {exc}")
         answer = f"エラーで回答できませんでした（{type(exc).__name__}）。ログを確認してください。"
+
+    elapsed = time.monotonic() - started
+    if LOG_CONVERSATION:
+        # 所要時間を一緒に出す。**Slack で体感する待ち時間はここがほぼ全部**なので、
+        # 「遅い」と感じたときに Runtime を掘る前に切り分けられる
+        print(f"--- 回答 {elapsed:.1f}秒\n{answer}")
 
     if placeholder_ts:
         _slack("chat.update", {"channel": channel, "ts": placeholder_ts, "text": answer})
