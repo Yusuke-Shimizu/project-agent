@@ -147,6 +147,8 @@ class ToolsStack(Stack):
                 "KAI_KNOWLEDGE_BUCKET": bucket.bucket_name,
             },
             log_retention=logs.RetentionDays.ONE_WEEK,
+            # Gateway 経由の呼び出しもトレースに載せる（§10-29）
+            tracing=lambda_.Tracing.ACTIVE,
         )
         # §5.2：エージェントは read-only。s3:PutObject は与えない
         bucket.grant_read(tools)

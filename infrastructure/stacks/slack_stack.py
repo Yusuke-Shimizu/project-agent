@@ -54,6 +54,15 @@ class SlackStack(Stack):
             runtime=lambda_.Runtime.PYTHON_3_13,
             code=lambda_.Code.from_asset("code/slack"),
             log_retention=logs.RetentionDays.ONE_WEEK,
+            # **これが無いと Slack 経由のトレースが 1 本も出ない。**
+            #
+            # 既定の PassThrough は「上流のトレースヘッダをそのまま流す」動作で、
+            # 上流にサンプリング済みのトレースが無いと **Sampled=0 のコンテキスト**を
+            # 下流に伝播する。Runtime 側はそれを尊重してスパンを捨てるため、
+            # 手で InvokeAgentRuntime すればトレースが出るのに、Slack から投げると
+            # 何も出ない、という状態になる（リハーサルで発覚）。
+            # ACTIVE にすると Lambda 自身がサンプリングを判断する。
+            tracing=lambda_.Tracing.ACTIVE,
         )
 
         # ------------------------------------------------------------------
