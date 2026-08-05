@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 
+from botocore.config import Config as BotoConfig
 from strands import Agent
 from strands.models import BedrockModel
 
@@ -76,6 +77,14 @@ def build_agent(stream: bool = True) -> Agent:
         model=BedrockModel(
             model_id=os.environ.get("KAI_MODEL_ID", DEFAULT_MODEL_ID),
             region_name=os.environ.get("AWS_REGION", DEFAULT_REGION),
+            # `ConverseStream` が `InternalServerException` を返すことがある。
+            # botocore の既定（標準モード・3回）では足りずに落ちたので上げる。
+            # **これだけでは足りない**（4回リトライしても落ちた実測がある）ので、
+            # app.py 側で呼び出しごとのリトライも重ねている
+            boto_client_config=BotoConfig(
+                retries={"max_attempts": 8, "mode": "adaptive"},
+                read_timeout=120,
+            ),
         ),
         system_prompt=SYSTEM_PROMPT,
         tools=load_tools(),

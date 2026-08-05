@@ -11,6 +11,7 @@ architecture_v1.md §4.2 のとおり、`BedrockAgentCoreApp` を使い**自前 
 """
 
 import os
+import time
 
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
@@ -35,6 +36,29 @@ if os.environ.get("KAI_TOOLS", "local").lower() != "gateway":
     from tools import core
 
     core._load_all()
+
+
+#: `ConverseStream` の一時障害に対する呼び出し単位のリトライ。
+#:
+#: botocore のリトライ（agent.py で 8 回まで上げてある）を使い切っても
+#: `InternalServerException` で落ちることがある。**同じ問を少し置いて呼び直すと通る**ので、
+#: エージェントの実行ごと畳んでやり直す。ツールは read-only なので再実行しても副作用は無い。
+#: リハーサルの実測で 12 回中 6 回落ちたため入れた。
+MAX_ATTEMPTS = 3
+RETRY_WAIT_SECONDS = 2.0
+
+
+def _ask_with_retry(prompt: str):
+    last: Exception | None = None
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            return build_agent(stream=False)(prompt)
+        except Exception as exc:  # noqa: BLE001 ― 型で絞るとモデル側の例外を取りこぼす
+            last = exc
+            print(f"エージェントの実行に失敗（{attempt}/{MAX_ATTEMPTS}）: {type(exc).__name__}: {exc}")
+            if attempt < MAX_ATTEMPTS:
+                time.sleep(RETRY_WAIT_SECONDS * attempt)
+    raise last
 
 
 def _answer(message) -> str:
@@ -62,7 +86,7 @@ def invoke(payload, context):
         return {"error": "prompt が空"}
 
     # stream=False：標準出力に流さず、戻り値だけ受け取る
-    result = build_agent(stream=False)(prompt)
+    result = _ask_with_retry(prompt)
     return {"result": _answer(result.message)}
 
 

@@ -39,9 +39,15 @@ DEMO_SCRIPT = [
     {
         "id": "Q1",
         "title": "矛盾検知・非断定（マルチテナント方式）",
+        # **レビューを頼むなら、レビュー対象が要る。** 当初は「物理分離する方針で
+        # 書きました」という一行だけだったが、それでは設計書が存在しない。
+        # Slack に抜粋を貼るのは実際にやる行為でもあるので、そのままの形にした
         "prompt": (
-            "設計書ドラフトのレビューお願いします。マルチテナント、"
-            "大口テナント向けにテナントごとにDBを物理分離する方針で書きました。"
+            "設計書ドラフトのレビューお願いします。\n\n"
+            "## 4. データ分離方式\n"
+            "本システムはマルチテナント構成とする。大口テナント（想定5社）については、"
+            "性能要件とデータ保全要件を満たすため、テナントごとに専用DBを割り当てる"
+            "物理分離（サイロ方式）を採用する。中小テナントは共有DBに収容する。"
         ),
         # DEC-004（active）と MTG-2026-03-15（proposed）の両方を出せて初めて
         # 「検討記録はあるが正式決定ではない」が言える
@@ -50,14 +56,14 @@ DEMO_SCRIPT = [
     {
         "id": "Q2",
         "title": "superseded・版管理（非同期処理基盤）",
-        "prompt": "非同期処理は Step Functions で組む予定です。",
+        "prompt": "非同期処理は Step Functions で組む予定です。この認識で合ってますか？",
         # 旧版と新版の両方。片方だけなら「置換された」が言えていない
         "expect": ["DEC-003a", "DEC-003b"],
     },
     {
         "id": "Q3",
         "title": "暗黙知の想起（外部連携）",
-        "prompt": "PartnerSync連携、まずは即時リトライのシンプル実装でいきます。",
+        "prompt": "PartnerSync連携、まずは即時リトライのシンプル実装でいきます。注意点あれば教えてください。",
         "expect": ["KNW-002"],
     },
     {
@@ -148,10 +154,18 @@ def resolve_runtime_arn(region: str) -> str:
 
 
 def run_once(agent, question: dict, show: bool) -> bool:
-    if isinstance(agent, tuple):  # ("runtime", arn, region)
-        answer = invoke_runtime(agent[1], question["prompt"], agent[2])
-    else:
-        answer = answer_text(agent(question["prompt"]))
+    # 呼び出しそのものが落ちても**台本を止めない**。
+    # Bedrock の `ConverseStream` が `InternalServerException` を返すことがあり、
+    # 1 問の失敗で残りが測れなくなると「どのくらいの頻度で起きるか」が分からない。
+    try:
+        if isinstance(agent, tuple):  # ("runtime", arn, region)
+            answer = invoke_runtime(agent[1], question["prompt"], agent[2])
+        else:
+            answer = answer_text(agent(question["prompt"]))
+    except Exception as exc:
+        print(f"  [FAIL] {question['id']} {question['title']}")
+        print(f"        ! 呼び出しが失敗: {type(exc).__name__}: {str(exc)[:120]}")
+        return False
 
     ok, problems = check(question, answer)
     mark = "PASS" if ok else "FAIL"
