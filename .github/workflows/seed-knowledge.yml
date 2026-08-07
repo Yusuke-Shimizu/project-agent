@@ -1,0 +1,99 @@
+# 正本（knowledge_base/）を S3 に同期し、KB に取り込む。
+#
+# architecture_v1.md §5.2 の「人 → Git（PR レビュー）→ マージ → CI が S3 に sync
+# → KB の Ingestion」の CI 側。手で流すときと**同じ** code/scripts/seed_knowledge.py
+# をそのまま実行する（CI 用の別経路は作らない）。
+#
+# PR では AWS に触らず front matter の検証だけ。main にマージされて初めて S3 に出る。
+# 「Git が正本、S3 は配信先」という向きはここでも変えない。
+#
+# 事前に必要なもの:
+#   - KaiKnowledgeStack の deploy（出力 SeedKnowledgeRoleArn）
+#   - リポジトリの Secret AWS_SEED_ROLE_ARN にその ARN を設定
+
+name: seed-knowledge
+
+on:
+  pull_request:
+    paths:
+      - "knowledge_base/**"
+      - "code/tools/core.py"
+      - "code/scripts/seed_knowledge.py"
+      - ".github/workflows/seed-knowledge.yml"
+  push:
+    branches: [main]
+    paths:
+      - "knowledge_base/**"
+      - "code/tools/core.py"
+      - "code/scripts/seed_knowledge.py"
+      - ".github/workflows/seed-knowledge.yml"
+  # 正本を触らない変更で索引だけ作り直したいとき用。
+  # OIDC の sub を main に固定してあるので、main から実行すること
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Ingestion job は同一データソースで並行実行できない。
+  # 連続 push を潰さずに順番待ちさせる（cancel-in-progress: false）
+  group: seed-knowledge
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-1
+
+jobs:
+  validate:
+    name: front matter と単体テスト
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - run: uv sync --extra dev
+
+      - name: 単体テスト
+        run: uv run pytest
+
+      - name: front matter の検証
+        # --dry-run は collect() だけを回す＝AWS の認証情報が要らない。
+        # 壊れた Markdown はここで落ちて S3 には出ない。
+        # フォークからの PR でも安全に走るのはこのため
+        run: uv run python code/scripts/seed_knowledge.py --dry-run
+
+  sync:
+    name: S3 へ同期して KB に取り込む
+    needs: validate
+    # PR では同期しない。main への push と、main からの手動実行だけ
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      # OIDC のトークン発行にこれが要る。job 単位で付けて validate には渡さない
+      id-token: write
+      contents: read
+    steps:
+      # seed_knowledge.py は「ローカルに無いキーを S3 から消す」ので、
+      # sparse checkout や部分取得にしないこと（消えてはいけないものが消える）
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - run: uv sync
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_SEED_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: 同期と Ingestion
+        # run_ingestion() の待ちループに上限が無いので、ここで頭を押さえる
+        timeout-minutes: 20
+        run: uv run python code/scripts/seed_knowledge.py

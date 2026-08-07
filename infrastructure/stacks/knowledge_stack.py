@@ -103,9 +103,7 @@ class KnowledgeStack(Stack):
         # ------------------------------------------------------------------
         # データソース（L1b）
         # ------------------------------------------------------------------
-        # chunkingStrategy: NONE = 1ファイル 1チャンク。13ファイル各数KBなので分割不要で、
-        # ドキュメント全体が丸ごと1件で返る＝引き当ての確実性が最大になる（§4.4）。
-        # データソース作成後は変更できない（§10-5）。
+        # チャンキング戦略はデータソース作成後は変更できない（§10-5）。
         self.data_source = bedrock.CfnDataSource(
             self,
             "KnowledgeDataSource",
@@ -137,12 +135,15 @@ class KnowledgeStack(Stack):
             # chunkingConfiguration は指定しない。
             # embeddingModelType: MANAGED と chunkingStrategy は併用できず、
             # 指定すると「A chunking strategy cannot be specified with a managed
-            # embedding model」で落ちる。§4.4 は NONE を前提に書かれているが、
-            # 同じ節が「マネージド reranker のために MANAGED のまま触らない」とも
-            # 言っており、両立しない。ハイブリッド検索と reranker を取り、
-            # 既定チャンキング（fixed-size 300 トークン / 20% overlap）を受け入れる。
-            # 正本は数百トークンなので多くは 1 チャンクに収まる。全文が要るときは
-            # get_document が S3 を直読みするので、出力契約のルール1は保たれる。
+            # embedding model」で落ちる（§10-11）。NONE（1ファイル 1チャンク）を取るには
+            # 埋め込みをカスタムにするしかなく、するとマネージド reranker を失うので、
+            # ハイブリッド検索と reranker を取り、既定チャンキング
+            # （fixed-size 300 トークン / 20% overlap）を受け入れる。
+            #
+            # **その結果、索引は 1件＝1ファイルの全文を返さない。** 同じ doc について
+            # 「抜粋」と「front matter 込みの全文」が別エントリで返る。core.py 側で
+            # doc_id ごとに束ね、body は正本から取り直すので（§4.4・§6）、
+            # 索引の割れ方に関わらず出力契約のルール1は保たれる。
             # 作り直しを繰り返す前提なので、データソースを消したらベクタも消す
             data_deletion_policy="DELETE",
         )
@@ -188,6 +189,72 @@ class KnowledgeStack(Stack):
             )
 
         # ------------------------------------------------------------------
+        # GitHub Actions から正本を同期するためのロール（CI）
+        # ------------------------------------------------------------------
+        # §5.2 の「Git → マージ → CI が S3 に sync」の CI 側。seed_knowledge.py を
+        # 手で流す代わりに、main へのマージで .github/workflows/seed-knowledge.yml が
+        # このロールを引き受けて同じスクリプトを実行する。
+        #
+        # OIDC プロバイダはアカウントに 1 つしか作れず、他の用途と共有するので
+        # ここでは作らずに ARN で参照する。無いアカウントで deploy するなら先に:
+        #   aws iam create-open-id-connect-provider \
+        #     --url https://token.actions.githubusercontent.com \
+        #     --client-id-list sts.amazonaws.com
+        github_repo = self.node.try_get_context("githubRepo") or "Yusuke-Shimizu/project-agent"
+        seed_role = iam.Role(
+            self,
+            "SeedKnowledgeRole",
+            assumed_by=iam.WebIdentityPrincipal(
+                f"arn:aws:iam::{Aws.ACCOUNT_ID}:oidc-provider/token.actions.githubusercontent.com",
+                conditions={
+                    "StringEquals": {
+                        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+                        # **main の ref に限定する。** ここを緩めると（`repo:...:*` など）
+                        # フォークの PR から正本を書き換えられる
+                        "token.actions.githubusercontent.com:sub": (
+                            f"repo:{github_repo}:ref:refs/heads/main"
+                        ),
+                    },
+                },
+            ),
+            description="Lets GitHub Actions sync the source of record from git to S3",
+        )
+        # 読むのは knowledge_base/ だけ。raw/ を一覧しようとしても弾かれる（§5.1）
+        seed_role.add_to_policy(
+            iam.PolicyStatement(
+                sid="ListKnowledgeBasePrefix",
+                actions=["s3:ListBucket"],
+                resources=[self.bucket.bucket_arn],
+                conditions={"StringLike": {"s3:prefix": ["knowledge_base/*"]}},
+            )
+        )
+        # 書き換えられるのも knowledge_base/ 配下だけ。
+        # seed_knowledge.py は「ローカルに無いキーを消す」ので DeleteObject も要る
+        seed_role.add_to_policy(
+            iam.PolicyStatement(
+                sid="WriteSourceOfRecord",
+                actions=["s3:PutObject", "s3:DeleteObject"],
+                resources=[f"{self.bucket.bucket_arn}/knowledge_base/*"],
+            )
+        )
+        seed_role.add_to_policy(
+            iam.PolicyStatement(
+                sid="RunIngestionJob",
+                actions=["bedrock:StartIngestionJob", "bedrock:GetIngestionJob"],
+                resources=[self.knowledge_base.attr_knowledge_base_arn],
+            )
+        )
+        seed_role.add_to_policy(
+            iam.PolicyStatement(
+                sid="ResolveStackOutputs",
+                # バケット名・KB ID・データソース ID をスタックの出力から引く。
+                # ワークフローにアカウント ID を書かずに済ませるため（public リポジトリ）
+                actions=["cloudformation:DescribeStacks"],
+                resources=[self.stack_id],
+            )
+        )
+
+        # ------------------------------------------------------------------
         CfnOutput(
             self,
             "KnowledgeBucketName",
@@ -205,4 +272,10 @@ class KnowledgeStack(Stack):
             "DataSourceId",
             value=self.data_source.attr_data_source_id,
             description="S3 データソースの ID。Ingestion job の起動に使う",
+        )
+        CfnOutput(
+            self,
+            "SeedKnowledgeRoleArn",
+            value=seed_role.role_arn,
+            description="GitHub Actions が引き受けるロール。リポジトリの Secret AWS_SEED_ROLE_ARN に設定する",
         )

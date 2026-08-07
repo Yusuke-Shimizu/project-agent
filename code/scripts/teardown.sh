@@ -8,7 +8,8 @@
 # 消す対象は**環境変数で明示されたものだけ**。名前の推測やワイルドカードでの一括削除は
 # しない。未設定のものは黙って飛ばす。
 #
-#   KAI_RUNTIME_ID        AgentCore Runtime の ID（L1d。starter toolkit が作るので CDK 外）
+#   KAI_RUNTIME_ID        AgentCore Runtime の ID（L1d。AgentCore CLI 側の CDK が作るので
+#                         このリポジトリの infrastructure/ とは別スタック）
 #   KAI_KNOWLEDGE_BUCKET  正本を置いた S3 バケット名（中身を空にするだけ）
 #   AWS_REGION            既定 ap-northeast-1
 #
@@ -34,7 +35,7 @@ for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=true ;;
     -y|--yes)  ASSUME_YES=true ;;
-    -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "不明な引数: $arg" >&2; exit 2 ;;
   esac
 done
