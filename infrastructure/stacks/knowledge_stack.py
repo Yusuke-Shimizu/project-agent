@@ -200,7 +200,24 @@ class KnowledgeStack(Stack):
         #   aws iam create-open-id-connect-provider \
         #     --url https://token.actions.githubusercontent.com \
         #     --client-id-list sts.amazonaws.com
-        github_repo = self.node.try_get_context("githubRepo") or "Yusuke-Shimizu/project-agent"
+        # sub の prefix は 2 形式ある。GitHub が名前ベースから **ID ベース**へ移行中で、
+        # どちらが発行されるかはリポジトリごとに違う（新しい方は ID 付き）:
+        #
+        #   repo:Yusuke-Shimizu/project-agent                    ← 名前ベース
+        #   repo:Yusuke-Shimizu@3601094/project-agent@1318618795 ← ID ベース
+        #
+        # 自分のリポジトリがどちらかは以下で確認できる:
+        #   gh api /repos/<owner>/<name>/actions/oidc/customization/sub
+        #
+        # 名前ベースだけ書くと sts:AssumeRoleWithWebIdentity が
+        # 「Not authorized」で落ちる。移行のどちら側でも通るよう両方許す。
+        # ID ベースはリポジトリをリネームしても変わらないので、そちらが本命。
+        github_sub_prefixes = self.node.try_get_context("githubSubPrefixes") or ",".join(
+            (
+                "repo:Yusuke-Shimizu/project-agent",
+                "repo:Yusuke-Shimizu@3601094/project-agent@1318618795",
+            )
+        )
         seed_role = iam.Role(
             self,
             "SeedKnowledgeRole",
@@ -209,11 +226,13 @@ class KnowledgeStack(Stack):
                 conditions={
                     "StringEquals": {
                         "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-                        # **main の ref に限定する。** ここを緩めると（`repo:...:*` など）
-                        # フォークの PR から正本を書き換えられる
-                        "token.actions.githubusercontent.com:sub": (
-                            f"repo:{github_repo}:ref:refs/heads/main"
-                        ),
+                        # **main の ref に限定する。** ワイルドカードで
+                        # `repo:...:*` にすると、フォークの PR から正本を書き換えられる。
+                        # 値が配列のときは「どれかに一致」なので、prefix の違いだけを吸収する
+                        "token.actions.githubusercontent.com:sub": [
+                            f"{prefix}:ref:refs/heads/main"
+                            for prefix in github_sub_prefixes.split(",")
+                        ],
                     },
                 },
             ),

@@ -100,6 +100,17 @@ L1d 以降は `-c runtimeRoleArn` を**必ず付ける**。付け忘れると `i
 ロールは GitHub の OIDC で引き受ける（アクセスキーは置かない）。信頼するのは
 **このリポジトリの main の ref だけ**で、権限も `knowledge_base/` prefix への
 読み書きと Ingestion job の起動に限る。`raw/` には触れない。
+
+別のリポジトリで使うなら、信頼する `sub` の prefix を確認して差し替える:
+
+```sh
+gh api /repos/<owner>/<name>/actions/oidc/customization/sub   # sub_claim_prefix を見る
+npx -y aws-cdk@2.1134.0 deploy KaiKnowledgeStack -c githubSubPrefixes=<その値> ...
+```
+
+GitHub は prefix を名前ベース（`repo:owner/name`）から ID ベース
+（`repo:owner@123/name@456`）へ移行中で、**どちらが発行されるかはリポジトリごとに違う**。
+食い違うと `Not authorized to perform sts:AssumeRoleWithWebIdentity` で落ちる。
 OIDC プロバイダはアカウントに 1 つしか作れないため CDK では作らず ARN で参照している。
 無いアカウントで使うなら先に `aws iam create-open-id-connect-provider` が要る。
 
