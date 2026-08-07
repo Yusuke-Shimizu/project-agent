@@ -263,6 +263,15 @@ class KnowledgeStack(Stack):
                 resources=[self.knowledge_base.attr_knowledge_base_arn],
             )
         )
+        # Ingestion が COMPLETE でも「引けるか」は別なので、CI で
+        # check_retrieve.py を流して索引の出来まで見る。読むだけ
+        seed_role.add_to_policy(
+            iam.PolicyStatement(
+                sid="VerifyRetrieval",
+                actions=["bedrock:Retrieve"],
+                resources=[self.knowledge_base.attr_knowledge_base_arn],
+            )
+        )
         seed_role.add_to_policy(
             iam.PolicyStatement(
                 sid="ResolveStackOutputs",
