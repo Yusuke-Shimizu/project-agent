@@ -21,7 +21,8 @@ def _fresh_cache():
 
 def test_全ドキュメントが仕様どおりのfront_matterを持つ():
     docs = core._load_all()
-    assert len(docs) == 14
+    # KNW-900（CI 検証用ダミー）を含む。ダミーを消すときに 14 へ戻す
+    assert len(docs) == 15
 
     for doc in docs:
         assert doc.doc_type in ("decision", "knowledge", "meeting")
