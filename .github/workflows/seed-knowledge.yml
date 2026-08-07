@@ -91,9 +91,9 @@ jobs:
 
       - run: uv sync
 
-      # ここは Node 20 の警告に出ないので v4 のまま。
-      # v6 まで出ているが、上げる理由が無いのに 2 メジャー跨がない
-      - uses: aws-actions/configure-aws-credentials@v4
+      # v6 で Node 24 になった。v5 の破壊的変更（不正な boolean 入力の扱い）は
+      # 文字列しか渡していないので関係ない
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_SEED_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
