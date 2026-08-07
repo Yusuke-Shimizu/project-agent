@@ -48,9 +48,12 @@ jobs:
     name: front matter と単体テスト
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v5
+      # setup-uv は v8 以降**メジャータグを公開しない**（`@v9` は解決できない）。
+      # tj-actions の供給網攻撃を受けての方針で、代わりに全リリースが immutable。
+      # 上げるときは完全バージョンで指定すること
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           python-version: "3.12"
           enable-cache: true
@@ -79,15 +82,17 @@ jobs:
     steps:
       # seed_knowledge.py は「ローカルに無いキーを S3 から消す」ので、
       # sparse checkout や部分取得にしないこと（消えてはいけないものが消える）
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           python-version: "3.12"
           enable-cache: true
 
       - run: uv sync
 
+      # ここは Node 20 の警告に出ないので v4 のまま。
+      # v6 まで出ているが、上げる理由が無いのに 2 メジャー跨がない
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_SEED_ROLE_ARN }}
