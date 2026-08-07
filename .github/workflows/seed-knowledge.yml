@@ -19,6 +19,10 @@ on:
       - "knowledge_base/**"
       - "code/tools/core.py"
       - "code/scripts/seed_knowledge.py"
+      - "code/scripts/check_retrieve.py"
+      # validate が pytest を回すので、テストと依存の変更でも起動させる
+      - "tests/**"
+      - "pyproject.toml"
       - ".github/workflows/seed-knowledge.yml"
   push:
     branches: [main]
@@ -26,6 +30,10 @@ on:
       - "knowledge_base/**"
       - "code/tools/core.py"
       - "code/scripts/seed_knowledge.py"
+      - "code/scripts/check_retrieve.py"
+      # validate が pytest を回すので、テストと依存の変更でも起動させる
+      - "tests/**"
+      - "pyproject.toml"
       - ".github/workflows/seed-knowledge.yml"
   # 正本を触らない変更で索引だけ作り直したいとき用。
   # OIDC の sub を main に固定してあるので、main から実行すること
