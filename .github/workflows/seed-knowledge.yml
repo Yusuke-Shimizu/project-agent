@@ -102,3 +102,10 @@ jobs:
         # run_ingestion() の待ちループに上限が無いので、ここで頭を押さえる
         timeout-minutes: 20
         run: uv run python code/scripts/seed_knowledge.py
+
+      # Ingestion が COMPLETE でも「引けるか」は別。取り込みの成否しか見ないと、
+      # `.metadata.json` の設計ミスやチャンクの割れ方で引き当てが落ちても気づけない。
+      # **エージェントもツールも通さない**ので、ここが落ちたら索引側の問題だと分かる
+      - name: 引き当ての検証
+        timeout-minutes: 5
+        run: uv run python code/scripts/check_retrieve.py --show

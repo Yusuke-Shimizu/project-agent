@@ -39,7 +39,7 @@ Context Agent）。技術勉強会の登壇デモとして作っている。
 | [infrastructure/](infrastructure/) | CDK (Python)。`KaiKnowledgeStack` が S3 と Managed KB、`KaiToolsStack` がツール Lambda と Gateway、`KaiSlackStack` が Slack の入口を持つ |
 | [code/runtime/app.py](code/runtime/app.py) | AgentCore Runtime の入口。`build_agent()` を呼ぶだけ |
 | [agentcore/](agentcore/) | AgentCore CLI の設定と CDK。`aws-targets.json` は各自で作る |
-| [.github/workflows/seed-knowledge.yml](.github/workflows/seed-knowledge.yml) | main へのマージで `seed_knowledge.py` を回す。PR では front matter の検証だけ |
+| [.github/workflows/seed-knowledge.yml](.github/workflows/seed-knowledge.yml) | main へのマージで `seed_knowledge.py` → `check_retrieve.py` を回す。PR では front matter の検証だけ |
 
 ## 使い方
 
@@ -83,7 +83,9 @@ CDK CLI を `npx` で固定しているのは、`aws-cdk-lib` 2.263 が CLI 2.11
 ### 同期を CI に任せる
 
 `knowledge_base/` を触る PR が main にマージされると
-[seed-knowledge.yml](.github/workflows/seed-knowledge.yml) が同じスクリプトを流す。
+[seed-knowledge.yml](.github/workflows/seed-knowledge.yml) が同じスクリプトを流し、
+続けて `check_retrieve.py` で**引き当てまで**確かめる。Ingestion が COMPLETE でも
+引けるとは限らないので、取り込みの成否だけでは足りない。
 PR の側では AWS に触らず `--dry-run` で front matter を検証するだけなので、
 壊れた Markdown は**マージ前に**落ちる。一度だけ以下の設定が要る:
 
