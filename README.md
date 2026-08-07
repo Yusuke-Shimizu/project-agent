@@ -30,7 +30,7 @@ Context Agent）。技術勉強会の登壇デモとして作っている。
 | [code/runtime/agent.py](code/runtime/agent.py) | Agent の組み立て。L1 で AgentCore のラッパを足す |
 | [code/scripts/ask.py](code/scripts/ask.py) | L0 の入口（CLI）。L2 で Slack に置き換わる |
 | [code/scripts/run_demo_script.py](code/scripts/run_demo_script.py) | 台本 4 問の連続実行と判定 |
-| [code/scripts/seed_knowledge.py](code/scripts/seed_knowledge.py) | 正本を S3 に同期し `.metadata.json` を生成し、KB の Ingestion まで回す（CI の代役） |
+| [code/scripts/seed_knowledge.py](code/scripts/seed_knowledge.py) | 正本を S3 に同期し `.metadata.json` を生成し、KB の Ingestion まで回す |
 | [code/scripts/check_retrieve.py](code/scripts/check_retrieve.py) | KB の引き当てだけを確かめる（エージェントを通さない） |
 | [code/scripts/check_gateway.py](code/scripts/check_gateway.py) | Gateway の MCP を直接叩いて確かめる（エージェントを通さない） |
 | [code/scripts/teardown.sh](code/scripts/teardown.sh) | デモ用リソースの後片付け |
@@ -39,6 +39,7 @@ Context Agent）。技術勉強会の登壇デモとして作っている。
 | [infrastructure/](infrastructure/) | CDK (Python)。`KaiKnowledgeStack` が S3 と Managed KB、`KaiToolsStack` がツール Lambda と Gateway、`KaiSlackStack` が Slack の入口を持つ |
 | [code/runtime/app.py](code/runtime/app.py) | AgentCore Runtime の入口。`build_agent()` を呼ぶだけ |
 | [agentcore/](agentcore/) | AgentCore CLI の設定と CDK。`aws-targets.json` は各自で作る |
+| [.github/workflows/seed-knowledge.yml](.github/workflows/seed-knowledge.yml) | main へのマージで `seed_knowledge.py` を回す。PR では front matter の検証だけ |
 
 ## 使い方
 
@@ -78,6 +79,29 @@ uv run python code/scripts/check_retrieve.py --show
 CDK CLI を `npx` で固定しているのは、`aws-cdk-lib` 2.263 が CLI 2.1134 以上を要求する一方、
 グローバルに入れた CLI がそれより古いことがあるため。バケット名は
 `seed_knowledge.py` がスタックの出力から自動で引く。
+
+### 同期を CI に任せる
+
+`knowledge_base/` を触る PR が main にマージされると
+[seed-knowledge.yml](.github/workflows/seed-knowledge.yml) が同じスクリプトを流す。
+PR の側では AWS に触らず `--dry-run` で front matter を検証するだけなので、
+壊れた Markdown は**マージ前に**落ちる。一度だけ以下の設定が要る:
+
+```sh
+npx -y aws-cdk@2.1134.0 deploy KaiKnowledgeStack -c runtimeRoleArn=<RuntimeRoleArn>
+gh secret set AWS_SEED_ROLE_ARN --body <出力された SeedKnowledgeRoleArn>
+```
+
+L1d 以降は `-c runtimeRoleArn` を**必ず付ける**。付け忘れると `if runtime_role_arn:` が
+素通りして、Runtime ロールに与えた `bedrock:Retrieve` と `s3:GetObject` が
+差分として消える（エージェントが KB を読めなくなる）。`cdk diff` に
+`[-] AWS::IAM::Policy RuntimeRole/Policy` が出たらそれ。
+
+ロールは GitHub の OIDC で引き受ける（アクセスキーは置かない）。信頼するのは
+**このリポジトリの main の ref だけ**で、権限も `knowledge_base/` prefix への
+読み書きと Ingestion job の起動に限る。`raw/` には触れない。
+OIDC プロバイダはアカウントに 1 つしか作れないため CDK では作らず ARN で参照している。
+無いアカウントで使うなら先に `aws iam create-open-id-connect-provider` が要る。
 
 読み口を S3 に向けて台本を流すと、ローカル直読みと**同じ答え**が返る（L1a の完了条件）:
 

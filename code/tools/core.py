@@ -46,7 +46,11 @@ _META_KEYS = (
 
 @dataclass(frozen=True)
 class Document:
-    """正本 1 ファイル。`chunkingStrategy: NONE` なので 1 ファイル = 1 チャンク。"""
+    """正本 1 ファイル。**索引のチャンクではなく、ファイル 1 つがそのまま 1 件。**
+
+    Managed KB は既定チャンキングで 1 ファイルを複数エントリに割って返すが、
+    `body` は索引からではなく正本から取り直すので、ここは常に全文（§4.4）。
+    """
 
     doc_id: str
     doc_type: str
@@ -281,7 +285,7 @@ def _tokens(text: str) -> set[str]:
     """日本語混じりの素朴なトークン化。
 
     KB のハイブリッド検索（L1）が担う「固有名詞・doc_id の引き当て」を、L0 では
-    ASCII 語 + 日本語の文字バイグラムで近似する。13 ファイルしか無いので全件スキャンで足りる。
+    ASCII 語 + 日本語の文字バイグラムで近似する。14 ファイルしか無いので全件スキャンで足りる。
     """
     lower = text.lower()
     tokens = set(_ASCII.findall(lower))
