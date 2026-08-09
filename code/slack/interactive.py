@@ -27,9 +27,6 @@ import boto3
 from proposal import ACTION_DISMISS, ACTION_PROPOSE
 from verify import is_from_slack, raw_body
 
-lambda_client = boto3.client("lambda")
-
-
 def _worker_name() -> str:
     """import 時ではなく呼ばれたときに読む。**テストが環境変数を要らなくなる。**"""
     return os.environ["PROPOSE_WORKER_FUNCTION_NAME"]
@@ -70,7 +67,8 @@ def handler(event, context):
         return _ok()
 
     # ② worker に投げて即 200。3 秒を超えると Slack がボタンにエラーを出す
-    lambda_client.invoke(
+    # クライアントもここで作る（import 時に作ると AWS 設定が無い環境で落ちる）
+    boto3.client("lambda").invoke(
         FunctionName=_worker_name(),
         InvocationType="Event",
         Payload=json.dumps(
