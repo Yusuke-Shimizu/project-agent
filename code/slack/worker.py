@@ -21,6 +21,9 @@ import uuid
 
 import boto3
 
+from proposal import blocks as proposal_blocks
+from proposal import parse_marker
+
 agentcore = boto3.client("bedrock-agentcore")
 secrets = boto3.client("secretsmanager")
 
@@ -134,11 +137,16 @@ def handler(event, context):
         # 「遅い」と感じたときに Runtime を掘る前に切り分けられる
         print(f"--- 回答 {elapsed:.1f}秒\n{answer}")
 
+    # 回答の最終行に起案の提案が付いていたら、剥がしてボタンにする（L4d）。
+    # **人が見る文面は 3 ブロックのまま。**マーカーが壊れていたら提案が出ないだけ
+    text, proposal = parse_marker(answer)
+    payload = {"channel": channel, "text": text}
+    if proposal:
+        payload["blocks"] = proposal_blocks(text, proposal)
+        print(f"--- 起案の提案 kind={proposal['kind']} doc_id={proposal.get('doc_id')}")
+
     if placeholder_ts:
-        _slack("chat.update", {"channel": channel, "ts": placeholder_ts, "text": answer})
+        _slack("chat.update", {**payload, "ts": placeholder_ts})
     else:
         # 暫定投稿に失敗していた場合は普通に投稿する
-        _slack(
-            "chat.postMessage",
-            {"channel": channel, "thread_ts": thread_ts, "text": answer},
-        )
+        _slack("chat.postMessage", {**payload, "thread_ts": thread_ts})

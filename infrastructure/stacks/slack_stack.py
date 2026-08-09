@@ -111,6 +111,54 @@ class SlackStack(Stack):
         worker.grant_invoke(ingress)
 
         # ------------------------------------------------------------------
+        # 起案の worker：ボタンが押されたあとを引き受ける（L4c）
+        # ------------------------------------------------------------------
+        # **質問応答の worker とは仕事が違う**（PR を作る／質問に答える）ので分ける。
+        # 起案の不具合で app_mention の経路が落ちないようにするのが要点
+        propose_worker = lambda_.Function(
+            self,
+            "SlackProposeWorker",
+            handler="propose_worker.handler",
+            # エージェントが正本を引き直してから起案するので、質問応答より長い
+            timeout=Duration.seconds(300),
+            memory_size=512,
+            environment={
+                "AGENT_RUNTIME_ARN": runtime_arn,
+                "SLACK_SECRET_ID": secret.secret_name,
+            },
+            **common,
+        )
+        secret.grant_read(propose_worker)
+        propose_worker.add_to_role_policy(
+            iam.PolicyStatement(
+                sid="InvokeAgentRuntime",
+                actions=["bedrock-agentcore:InvokeAgentRuntime"],
+                resources=[runtime_arn, f"{runtime_arn}/*"],
+            )
+        )
+
+        # ------------------------------------------------------------------
+        # ボタンの受け口（L4c）
+        # ------------------------------------------------------------------
+        # **ingress とは別 Lambda。** 責務は同じ（3 秒で 200 を返す）が、
+        # 下流の worker がどうせ別になるので、入口も分けて 1 入口 = 1 worker を保つ。
+        # 署名検証は verify.py を両方から import している（複製しない）
+        interactive = lambda_.Function(
+            self,
+            "SlackInteractive",
+            handler="interactive.handler",
+            timeout=Duration.seconds(10),
+            memory_size=256,
+            environment={
+                "PROPOSE_WORKER_FUNCTION_NAME": propose_worker.function_name,
+                "SLACK_SECRET_ID": secret.secret_name,
+            },
+            **common,
+        )
+        secret.grant_read(interactive)
+        propose_worker.grant_invoke(interactive)
+
+        # ------------------------------------------------------------------
         # API Gateway（HTTP API）
         # ------------------------------------------------------------------
         api = apigw.HttpApi(self, "SlackApi", description="Slack Events API endpoint")
@@ -119,12 +167,23 @@ class SlackStack(Stack):
             methods=[apigw.HttpMethod.POST],
             integration=integrations.HttpLambdaIntegration("Ingress", ingress),
         )
+        api.add_routes(
+            path="/slack/interactive",
+            methods=[apigw.HttpMethod.POST],
+            integration=integrations.HttpLambdaIntegration("Interactive", interactive),
+        )
 
         CfnOutput(
             self,
             "SlackEventsUrl",
             value=f"{api.api_endpoint}/slack/events",
             description="Slack App の Event Subscriptions に登録する URL",
+        )
+        CfnOutput(
+            self,
+            "SlackInteractiveUrl",
+            value=f"{api.api_endpoint}/slack/interactive",
+            description="Slack App の Interactivity & Shortcuts に登録する URL（L4c）",
         )
         CfnOutput(
             self,

@@ -77,7 +77,7 @@ class FakeGitHub:
         if method == "GET" and path.startswith("contents/"):
             name = path.removeprefix("contents/").split("?")[0]
             if name not in self.files:
-                raise writeback.ProposalRejected(f"404 {name}")
+                raise writeback.GitHubError(f"404 {name}", 404)
             return {
                 "content": base64.b64encode(self.files[name].encode("utf-8")).decode("ascii"),
                 "sha": "filesha",
@@ -151,6 +151,22 @@ def test_新規起案はブランチを切ってPRを立てる(gh):
     assert result["pr_url"].endswith("/pull/42")
     assert [c[0] for c in gh.calls if c[0] in ("POST", "PUT")] == ["POST", "PUT", "POST", "POST"]
     assert gh.written("knowledge_base/knowledge/KNW-007.md") == NEW_DOC
+
+
+def test_既にあるdoc_idなら読める理由で弾く(gh):
+    # GitHub の `"sha" wasn't supplied`（422）をそのまま返さない。実測で踏んだ
+    gh.files["knowledge_base/knowledge/KNW-007.md"] = NEW_DOC
+    with pytest.raises(writeback.ProposalRejected, match="既にある"):
+        propose(gh)
+    assert not gh.methods("/git/refs")  # ブランチを切る前に落ちる
+
+
+def test_404以外のエラーは存在確認で握りつぶさない(gh):
+    def boom(method, url, headers, body):
+        raise writeback.GitHubError("500 だった", 500)
+
+    with pytest.raises(writeback.GitHubError, match="500"):
+        propose(gh, client=writeback.Client(repo="o/r", base="main", token="t", transport=boom))
 
 
 def test_起案PRにラベルが付く(gh):
