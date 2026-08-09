@@ -233,8 +233,21 @@ class Client:
 # --------------------------------------------------------------------------
 
 
-def _today() -> str:
-    return datetime.date.today().isoformat()
+#: 追記の見出しに打つ日付のタイムゾーン。
+#:
+#: **Lambda は UTC で動くので `date.today()` では足りない。** 正本の `date` は
+#: すべて JST 基準で書かれているため、**JST 00:00〜09:00 に起案すると前日の日付が
+#: 入る**（実際に L4a の検証で踏んだ ―― 手元では 08-10、Lambda では 08-09 になった）。
+#: 索引にも front matter にも出ないので**静かに間違える**タイプの壊れ方。
+#:
+#: `zoneinfo` を使わないのは、Lambda に tzdata が無い環境を踏まないため。
+#: JST に夏時間は無いので固定オフセットで足りる。
+JST = datetime.timezone(datetime.timedelta(hours=9))
+
+
+def _today(now: datetime.datetime | None = None) -> str:
+    """JST の今日を `YYYY-MM-DD` で返す。`now` はテスト用。"""
+    return (now or datetime.datetime.now(JST)).astimezone(JST).date().isoformat()
 
 
 def _branch_name(kind: str, key: str, text: str) -> str:

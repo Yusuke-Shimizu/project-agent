@@ -259,6 +259,22 @@ def test_追記の見出しに日付が入る(gh):
     assert f"## 追記 {writeback._today()}" in written
 
 
+@pytest.mark.parametrize(
+    ("utc", "expected"),
+    [
+        # **Lambda は UTC で動く。** JST 00:00〜09:00 に起案すると、UTC 基準では前日。
+        # 正本の date は JST 基準なので、ここがずれると静かに 1 日古い日付が入る
+        ("2026-08-09T16:00:00+00:00", "2026-08-10"),  # JST 8/10 01:00
+        ("2026-08-09T14:59:00+00:00", "2026-08-09"),  # JST 8/9 23:59
+        ("2026-12-31T15:00:00+00:00", "2027-01-01"),  # 年をまたぐ
+    ],
+)
+def test_追記の日付はJSTで打つ(utc, expected):
+    import datetime
+
+    assert writeback._today(datetime.datetime.fromisoformat(utc)) == expected
+
+
 def test_追記でfront_matterは変わらない(gh):
     append(gh)
     written = gh.written("knowledge_base/knowledge/KNW-006.md")
