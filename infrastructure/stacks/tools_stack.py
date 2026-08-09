@@ -14,6 +14,7 @@ architecture_v1.md §4.3。**この段では公開するだけで、エージェ
 §5.2 の方針とも揃う。
 """
 
+import os
 import json
 import pathlib
 import shutil
@@ -177,6 +178,11 @@ class ToolsStack(Stack):
         )
         tools.grant_invoke(gateway_role)
 
+        # 起案 Lambda（KaiWritebackStack）も同じ Gateway にぶら下げる（L4b）。
+        # **あちら側から参照するので公開しておく。** 逆向き（ここから起案 Lambda を
+        # 参照する）にすると、grant とターゲット登録が別スタックに散って循環する
+        self.gateway_role = gateway_role
+
         # ------------------------------------------------------------------
         # Gateway 本体
         # ------------------------------------------------------------------
@@ -234,7 +240,11 @@ class ToolsStack(Stack):
         # ------------------------------------------------------------------
         # L3b でエージェントが Gateway を叩く。KnowledgeStack と同じく context で受ける:
         #   cdk deploy KaiToolsStack -c runtimeRoleArn=arn:aws:iam::...:role/...
-        runtime_role_arn = self.node.try_get_context("runtimeRoleArn")
+        # context が無ければ環境変数（.envrc.local の KAI_RUNTIME_ROLE_ARN）を見る。
+        # **付け忘れると Runtime ロールの権限が差分として消える**ので経路を 2 つ持つ
+        runtime_role_arn = self.node.try_get_context("runtimeRoleArn") or os.environ.get(
+            "KAI_RUNTIME_ROLE_ARN"
+        )
         if runtime_role_arn:
             # 構築 ID は KaiKnowledgeStack と**別名**にする。同じ "RuntimeRole" だと
             # 両スタックが同じ論理 ID のインラインポリシーを作りにいって
