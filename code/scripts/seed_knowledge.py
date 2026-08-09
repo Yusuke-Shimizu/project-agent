@@ -11,6 +11,7 @@
 1. `knowledge_base/**/*.md` を読んで front matter を検証する
 2. 各ファイルの `.metadata.json`（§4.4 のメタデータフィルタ用）を作る
 3. S3 に同期する。ローカルに無くなったものは S3 からも消す
+4. Ingestion を起こす。**削除があった回は、索引からも消えたことを確かめる**
 
 `raw/` prefix（提供された Excel / PPT の原本置き場）には一切触らない。
 
@@ -96,6 +97,72 @@ def run_ingestion(region: str, kb_id: str, ds_id: str) -> None:
         for reason in current.get("failureReasons", []):
             print(f"  ! {reason}")
         raise SystemExit(1)
+
+
+def deleted_doc_ids(stale: set[str]) -> list[str]:
+    """S3 から消したキーのうち、doc として消えたものの doc_id を拾う。
+
+    `.metadata.json` は本体と対で消えるので数えない。doc_id はファイル名と
+    一致させる規則（knowledge_base/README.md）なので stem をそのまま使える。
+    """
+    return sorted(pathlib.Path(key).stem for key in stale if key.endswith(".md"))
+
+
+def still_retrievable(region: str, kb_id: str, doc_ids: list[str]) -> list[str]:
+    """消したはずの doc がまだ索引に残っていないか、doc_id で直接引いて確かめる。
+
+    Managed KB のフィルタは `equals` / `in` しか使えない（§10-6）。曖昧なクエリで
+    「それらしいものが返らないこと」を見るのではなく、doc_id の完全一致で引いて
+    **0 件であること**を見る。こうしないと「たまたま上位に来なかった」と区別できない。
+    """
+    runtime = boto3.client("bedrock-agent-runtime", region_name=region)
+    remaining = []
+    for doc_id in doc_ids:
+        response = runtime.retrieve(
+            knowledgeBaseId=kb_id,
+            retrievalQuery={"text": doc_id},
+            retrievalConfiguration={
+                "managedSearchConfiguration": {
+                    "numberOfResults": 5,
+                    "filter": {"equals": {"key": "doc_id", "value": doc_id}},
+                }
+            },
+        )
+        if response.get("retrievalResults"):
+            remaining.append(doc_id)
+    return remaining
+
+
+def verify_deletions(region: str, kb_id: str, ds_id: str, doc_ids: list[str]) -> None:
+    """消した doc が索引からも消えたことを確かめ、残っていたら取り込み直す。
+
+    **Ingestion job が「削除 0 件」で COMPLETE したのに索引には残っていた、という
+    取りこぼしを一度観測している。** 同じ手順でも再現せず、条件は特定できていない
+    （ジョブ間隔・環境のどちらも説明にならなかった）。AWS のドキュメントは
+    「削除はその sync で反映される」としか書いておらず、この挙動の記述は無い。
+
+    原因を当てにいくより、消えたことを毎回確かめて駄目なら回し直す。放っておくと
+    **正本から消えた doc がエージェントの検索で返り続ける**ので、静かに間違える。
+    """
+    if not doc_ids:
+        return
+
+    print()
+    print(f"削除の反映を確認する: {', '.join(doc_ids)}")
+    remaining = still_retrievable(region, kb_id, doc_ids)
+    if not remaining:
+        print("  索引からも消えている")
+        return
+
+    print(f"  ! まだ引ける: {', '.join(remaining)}。もう一度 Ingestion する")
+    run_ingestion(region, kb_id, ds_id)
+    remaining = still_retrievable(region, kb_id, doc_ids)
+    if remaining:
+        raise SystemExit(
+            f"消したはずの {', '.join(remaining)} が 2 回の Ingestion 後も索引に残っている。"
+            "正本から消えた doc がエージェントの検索で返る状態なので、手で確認すること"
+        )
+    print("  2 回目の Ingestion で索引からも消えた")
 
 
 def build_metadata(meta: dict) -> dict:
@@ -189,6 +256,8 @@ def main() -> None:
     elif kb_id and ds_id:
         print()
         run_ingestion(args.region, kb_id, ds_id)
+        # 削除があった回だけ、索引からも消えたことを確かめる（取りこぼし対策）
+        verify_deletions(args.region, kb_id, ds_id, deleted_doc_ids(stale))
     else:
         print("(KB がまだ無いので Ingestion しない)")
 

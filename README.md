@@ -70,7 +70,15 @@ uv run python code/scripts/seed_knowledge.py
 ```
 
 `seed_knowledge.py` は S3 に同期したあと Ingestion job を起こして完了まで待つ
-（`--no-ingest` で同期だけ）。索引の出来は**エージェントを通さずに**確かめる:
+（`--no-ingest` で同期だけ）。
+
+**doc を消した回は、索引からも消えたことを確認してから終わる。** Ingestion job が
+「削除 0 件」で COMPLETE したのに索引には残っていた、という取りこぼしを一度観測して
+いるため（間欠的で、同じ手順でも再現しない）。残っていたら自動で取り込み直し、
+それでも消えなければ異常終了する。放っておくと**正本から消えた doc がエージェントの
+検索で返り続ける**ので、静かに間違えるのを防ぐ。
+
+索引の出来は**エージェントを通さずに**確かめる:
 
 ```sh
 uv run python code/scripts/check_retrieve.py --show
