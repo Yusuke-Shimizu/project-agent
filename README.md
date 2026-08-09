@@ -31,6 +31,7 @@ Context Agent）。技術勉強会の登壇デモとして作っている。
 | [code/scripts/ask.py](code/scripts/ask.py) | L0 の入口（CLI）。L2 で Slack に置き換わる |
 | [code/scripts/run_demo_script.py](code/scripts/run_demo_script.py) | 台本 4 問の連続実行と判定 |
 | [code/scripts/seed_knowledge.py](code/scripts/seed_knowledge.py) | 正本を S3 に同期し `.metadata.json` を生成し、KB の Ingestion まで回す |
+| [code/scripts/validate_knowledge.py](code/scripts/validate_knowledge.py) | 正本の規約検証（doc_id の一意性・`supersedes` の対称性・ファイル名との一致・置き場所と型の一致・`topic` の allowlist）。`--root` で**別リポジトリの正本**も検証できる |
 | [code/scripts/check_retrieve.py](code/scripts/check_retrieve.py) | KB の引き当てだけを確かめる（エージェントを通さない） |
 | [code/scripts/check_gateway.py](code/scripts/check_gateway.py) | Gateway の MCP を直接叩いて確かめる（エージェントを通さない） |
 | [code/scripts/teardown.sh](code/scripts/teardown.sh) | デモ用リソースの後片付け |

@@ -19,6 +19,7 @@ on:
       - "knowledge_base/**"
       - "code/tools/core.py"
       - "code/scripts/seed_knowledge.py"
+      - "code/scripts/validate_knowledge.py"
       - "code/scripts/check_retrieve.py"
       # validate が pytest を回すので、テストと依存の変更でも起動させる
       - "tests/**"
@@ -30,6 +31,7 @@ on:
       - "knowledge_base/**"
       - "code/tools/core.py"
       - "code/scripts/seed_knowledge.py"
+      - "code/scripts/validate_knowledge.py"
       - "code/scripts/check_retrieve.py"
       # validate が pytest を回すので、テストと依存の変更でも起動させる
       - "tests/**"
@@ -71,10 +73,18 @@ jobs:
       - name: 単体テスト
         run: uv run pytest
 
+      - name: 正本の規約検証
+        # 1 ファイルだけを見ていては分からない検査（doc_id の一意性・supersedes の
+        # 対称性・ファイル名との一致・置き場所と型の一致）。**別リポジトリの正本
+        # （kai-knowledge）もこれを --root で呼ぶ**ので、規約は1か所で持つ
+        run: uv run python code/scripts/validate_knowledge.py
+
       - name: front matter の検証
         # --dry-run は collect() だけを回す＝AWS の認証情報が要らない。
         # 壊れた Markdown はここで落ちて S3 には出ない。
-        # フォークからの PR でも安全に走るのはこのため
+        # フォークからの PR でも安全に走るのはこのため。
+        # 上の規約検証と重なる部分はあるが、こちらは **.metadata.json の生成まで**
+        # 通すので、S3 に出る形そのものを確かめている
         run: uv run python code/scripts/seed_knowledge.py --dry-run
 
   sync:
