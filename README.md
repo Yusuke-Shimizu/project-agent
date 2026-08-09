@@ -33,11 +33,15 @@ Context Agent）。技術勉強会の登壇デモとして作っている。
 | [code/scripts/seed_knowledge.py](code/scripts/seed_knowledge.py) | 正本を S3 に同期し `.metadata.json` を生成し、KB の Ingestion まで回す |
 | [code/scripts/validate_knowledge.py](code/scripts/validate_knowledge.py) | 正本の規約検証（doc_id の一意性・`supersedes` の対称性・ファイル名との一致・置き場所と型の一致・`topic` の allowlist）。`--root` で**別リポジトリの正本**も検証できる |
 | [code/scripts/check_retrieve.py](code/scripts/check_retrieve.py) | KB の引き当てだけを確かめる（エージェントを通さない） |
+| [code/tools/writeback.py](code/tools/writeback.py) | 書き戻し（起案）の実体。`propose_knowledge` / `propose_append`。**PR を立てるところで止まり、マージする API は呼ばない** |
+| [code/tools/writeback_handler.py](code/tools/writeback_handler.py) | 起案 Lambda の薄いラッパ（`lambda_handler.py` と同じ形） |
+| [code/scripts/check_propose.py](code/scripts/check_propose.py) | 起案をエージェントを通さず確かめる（`--dry-run` は GitHub に触らない） |
+| [docs/github_app.md](docs/github_app.md) | 起案に使う GitHub App の作り方（**作成はブラウザでしかできない**） |
 | [code/scripts/check_gateway.py](code/scripts/check_gateway.py) | Gateway の MCP を直接叩いて確かめる（エージェントを通さない） |
 | [code/scripts/teardown.sh](code/scripts/teardown.sh) | デモ用リソースの後片付け |
 | [code/slack/ingress.py](code/slack/ingress.py) | Slack の受け口。署名検証して worker に非同期で投げ、即 200 を返す |
 | [code/slack/worker.py](code/slack/worker.py) | 「考え中…」を先に投げ、`InvokeAgentRuntime` の結果で `chat.update` する |
-| [infrastructure/](infrastructure/) | CDK (Python)。`KaiKnowledgeStack` が S3 と Managed KB、`KaiToolsStack` がツール Lambda と Gateway、`KaiSlackStack` が Slack の入口を持つ |
+| [infrastructure/](infrastructure/) | CDK (Python)。`KaiKnowledgeStack` が S3 と Managed KB、`KaiToolsStack` がツール Lambda と Gateway、`KaiSlackStack` が Slack の入口を持ち、`KaiWritebackStack` が起案 Lambda と GitHub App のシークレット箱を持つ |
 | [code/runtime/app.py](code/runtime/app.py) | AgentCore Runtime の入口。`build_agent()` を呼ぶだけ |
 | [agentcore/](agentcore/) | AgentCore CLI の設定と CDK。`aws-targets.json` は各自で作る |
 | [.github/workflows/seed-knowledge.yml](.github/workflows/seed-knowledge.yml) | main へのマージで `seed_knowledge.py` → `check_retrieve.py` を回す。PR では front matter の検証だけ |
@@ -212,6 +216,24 @@ uv run python code/scripts/run_demo_script.py --runtime --repeat 3
 期待する doc_id を根拠に挙げているかを機械的に判定する。**当日前にこれを複数回流して
 回答が安定していることを確認する。**
 
+### 書き戻し（起案）を用意する（L4a）
+
+エージェントの出力を正本に戻す経路。**PR を立てるところまでで、マージするのは人。**
+正本は別リポジトリ（[kai-knowledge](https://github.com/Yusuke-Shimizu/kai-knowledge)）に
+分けてあり、そこの ruleset で「PR 必須・承認 1 件・必須チェック 2 つ」を掛けている。
+
+```sh
+npx -y aws-cdk@2.1134.0 deploy KaiWritebackStack
+uv run python code/scripts/check_propose.py --dry-run    # 受け付けない側だけ（GitHub に触らない）
+```
+
+`KaiWritebackStack` も **Secrets Manager の箱だけ作り、値は入れない**。GitHub App の
+作成と秘密鍵の投入は [docs/github_app.md](docs/github_app.md) にまとめてある
+（**App の作成はブラウザでしかできない**）。
+
+**この段では Gateway に登録しない。** エージェントからは見えないので、台本 4 問の
+挙動は変わらない（L1b・L3a と同じ「作るだけ作って差し替えない」形）。
+
 ### 環境変数
 
 | 変数 | 既定 | 用途 |
@@ -224,6 +246,11 @@ uv run python code/scripts/run_demo_script.py --runtime --repeat 3
 | `KAI_KB_ID` | — | `kb` のときの Knowledge Base ID |
 | `KAI_RERANK` | `managed` | マネージド reranker。`none` で切る |
 | `KAI_MODEL_ID` | `global.anthropic.claude-sonnet-5` | Bedrock の推論プロファイル |
+| `KAI_WRITEBACK_REPO` | `Yusuke-Shimizu/kai-knowledge` | 起案の PR を出す先 |
+| `KAI_WRITEBACK_BASE` | `main` | PR の宛先ブランチ |
+| `KAI_GITHUB_APP_SECRET_ID` | `kai/github-app` | GitHub App の App ID と秘密鍵 |
+| `KAI_PROPOSAL_LABEL` | `proposed-by-agent` | 起案 PR に付けるラベル |
+| `KAI_MAX_OPEN_PROPOSALS` | `5` | open な起案がこれ以上あれば起案しない |
 | `AWS_REGION` | `ap-northeast-1` | リージョン |
 
 ## セットアップ
