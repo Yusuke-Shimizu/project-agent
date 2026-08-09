@@ -1,0 +1,43 @@
+# 単体テストと正本の規約検証。**paths で絞らない。**
+#
+# seed-knowledge.yml も同じ検証を持っているが、あちらは `paths` で絞ってある
+# （S3 への同期と Ingestion を起こす経路なので、正本を触った回だけ動かしたい）。
+# その結果、**`code/slack/**` を変えた PR ではワークフローが 1 つも起動せず、
+# チェックが空のままマージできてしまった**（2026-08-09 に実際にやった）。
+#
+# テストは「正本を触ったか」に関係なく毎回走るべきなので、こちらに分けた。
+# AWS には触らないので数十秒で終わる。
+
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: 単体テストと規約検証
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # setup-uv は v8 以降メジャータグを公開しない。完全バージョンで指定する
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - run: uv sync --extra dev
+
+      # **AWS の設定が無い環境で通ること自体が検証になる。**
+      # boto3 のクライアントを import 時に作ると NoRegionError で収集ごと落ちる
+      - name: 単体テスト
+        run: uv run pytest
+
+      - name: 正本の規約検証
+        run: uv run python code/scripts/validate_knowledge.py
