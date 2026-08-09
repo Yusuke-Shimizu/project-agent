@@ -19,8 +19,6 @@ import time
 
 import boto3
 
-secrets = boto3.client("secretsmanager")
-
 #: 署名の許容ずれ。Slack の推奨は5分
 MAX_SKEW_SECONDS = 60 * 5
 
@@ -31,7 +29,10 @@ def signing_secret(secret_id: str | None = None) -> str:
     """Secrets Manager の値はコンテナが生きている間だけ使い回す。"""
     global _signing_secret
     if _signing_secret is None:
-        value = secrets.get_secret_value(
+        # **クライアントは import 時ではなくここで作る。**
+        # モジュール直下で作ると、AWS の設定が無い環境（CI）では
+        # `NoRegionError` で **テストの収集ごと**落ちる（実際に踏んだ）
+        value = boto3.client("secretsmanager").get_secret_value(
             SecretId=secret_id or os.environ["SLACK_SECRET_ID"]
         )["SecretString"]
         _signing_secret = json.loads(value)["signing_secret"]

@@ -24,9 +24,6 @@ import boto3
 
 from proposal import ACTION_DISMISS, directive
 
-agentcore = boto3.client("bedrock-agentcore")
-secrets = boto3.client("secretsmanager")
-
 RUNTIME_ARN = os.environ["AGENT_RUNTIME_ARN"]
 SECRET_ID = os.environ["SLACK_SECRET_ID"]
 SLACK_API = "https://slack.com/api"
@@ -40,7 +37,9 @@ _bot_token: str | None = None
 def _get_bot_token() -> str:
     global _bot_token
     if _bot_token is None:
-        value = secrets.get_secret_value(SecretId=SECRET_ID)["SecretString"]
+        value = boto3.client("secretsmanager").get_secret_value(SecretId=SECRET_ID)[
+            "SecretString"
+        ]
         _bot_token = json.loads(value)["bot_token"]
     return _bot_token
 
@@ -80,7 +79,7 @@ def _session_id(thread_ts: str) -> str:
 
 
 def _ask_agent(prompt: str, thread_ts: str) -> str:
-    response = agentcore.invoke_agent_runtime(
+    response = boto3.client("bedrock-agentcore").invoke_agent_runtime(
         agentRuntimeArn=RUNTIME_ARN,
         runtimeSessionId=_session_id(thread_ts),
         payload=json.dumps({"prompt": prompt}).encode("utf-8"),
