@@ -76,6 +76,18 @@ class ProposalRejected(Exception):
     """
 
 
+class GitHubError(ProposalRejected):
+    """GitHub が返したエラー。**ステータスを持たせる。**
+
+    文字列に "404" が含まれるかで分岐すると、メッセージを直した瞬間に壊れる。
+    「無いことを確かめる」（404 は正常）と「本当に失敗した」を区別するために要る。
+    """
+
+    def __init__(self, message: str, status: int) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 # --------------------------------------------------------------------------
 # GitHub
 # --------------------------------------------------------------------------
@@ -90,7 +102,9 @@ def _http(method: str, url: str, headers: dict, body: dict | None) -> dict:
             raw = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:500]
-        raise ProposalRejected(f"GitHub API {method} {url} が {exc.code}: {detail}") from exc
+        raise GitHubError(
+            f"GitHub API {method} {url} が {exc.code}: {detail}", exc.code
+        ) from exc
     return json.loads(raw) if raw else {}
 
 
@@ -186,6 +200,21 @@ class Client:
         owner = self.repo.split("/")[0]
         found = self._call("GET", f"/pulls?state=open&head={owner}:{branch}")
         return found[0] if found else None
+
+    def exists(self, path: str) -> bool:
+        """`path` が既にあるか。**404 だけを「無い」と解釈する。**
+
+        これが無いと、既にある doc_id で起案したときに GitHub の
+        `"sha" wasn't supplied`（422）がそのままエージェントに返る ―― 実測で踏んだ。
+        読める索引と書く先の正本がずれていると採番が衝突するので、ここは通る。
+        """
+        try:
+            self._call("GET", f"/contents/{path}?ref={self.base}")
+        except GitHubError as exc:
+            if exc.status == 404:
+                return False
+            raise
+        return True
 
     def get_file(self, path: str) -> tuple[str, str]:
         """`(本文, sha)` を返す。無ければ `ProposalRejected`。"""
@@ -336,6 +365,12 @@ def propose_knowledge(
         raise ProposalRejected(f"ファイル名と doc_id が違う: {stem} / {doc.doc_id}")
 
     _check_common(based_on, source_url, client)
+
+    if client.exists(path):
+        raise ProposalRejected(
+            f"{doc.doc_id} は起案先の正本に既にある。"
+            f"採番し直すか、追記なら propose_append({doc.doc_id}) を使ってほしい"
+        )
 
     branch = _branch_name("new", doc.doc_id, content)
     existing = client.find_pull(branch)

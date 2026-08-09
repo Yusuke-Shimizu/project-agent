@@ -10,3 +10,5 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "code" / "scripts"))
+# code/slack/ も同じ理由でパッケージにしていない（Lambda の入口の置き場）
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "code" / "slack"))

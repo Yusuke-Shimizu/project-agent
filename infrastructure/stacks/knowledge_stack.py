@@ -10,6 +10,7 @@ L1a で S3 バケット、L1b で Managed KB とデータソースを足した�
 **この段では索引を作るだけで、エージェントはまだ KB を見ていない**（§9）。
 """
 
+import os
 from aws_cdk import Aws, CfnOutput, RemovalPolicy, Stack
 from aws_cdk import aws_bedrock as bedrock
 from aws_cdk import aws_iam as iam
@@ -159,7 +160,11 @@ class KnowledgeStack(Stack):
         #
         # §5.2 のとおり **s3:PutObject は与えない**。エージェントは read-only で、
         # 「判断は人に残す」を権限でも表現する。
-        runtime_role_arn = self.node.try_get_context("runtimeRoleArn")
+        # context が無ければ環境変数（.envrc.local の KAI_RUNTIME_ROLE_ARN）を見る。
+        # **付け忘れると Runtime ロールの権限が差分として消える**ので経路を 2 つ持つ
+        runtime_role_arn = self.node.try_get_context("runtimeRoleArn") or os.environ.get(
+            "KAI_RUNTIME_ROLE_ARN"
+        )
         if runtime_role_arn:
             runtime_role = iam.Role.from_role_arn(
                 self, "RuntimeRole", runtime_role_arn, mutable=True

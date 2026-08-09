@@ -4,7 +4,7 @@
 Context Agent）。技術勉強会の登壇デモとして作っている。
 
 段階的に積み上げる。**1 段 = 1 つの差し替え、判定は毎回 `run_demo_script.py` の全問 PASS。**
-現在 **L3（Gateway）まで完了**。
+現在 **L4b（起案ツールを Gateway に載せた）まで完了**。
 
 | 段 | 中身 | 状態 |
 | --- | --- | --- |
@@ -16,6 +16,8 @@ Context Agent）。技術勉強会の登壇デモとして作っている。
 | L2 | Slack App + API GW + Lambda×2 | ✅ |
 | L3a | ツールを Lambda に出し Gateway の MCP ターゲットとして公開（エージェントは繋がない） | ✅ |
 | L3b | エージェントを Gateway 経由の MCP に差し替え | ✅ |
+| L4a | 起案ツールと Lambda（`propose_knowledge` / `propose_append`）。Gateway には載せない | ✅ |
+| L4b | Gateway に 2 つめのターゲットとして載せる（`tools/list` が 4 つになる） | ✅ |
 
 ## 構成
 
@@ -114,6 +116,21 @@ L1d 以降は `-c runtimeRoleArn` を**必ず付ける**。付け忘れると `i
 素通りして、Runtime ロールに与えた `bedrock:Retrieve` と `s3:GetObject` が
 差分として消える（エージェントが KB を読めなくなる）。`cdk diff` に
 `[-] AWS::IAM::Policy RuntimeRole/Policy` が出たらそれ。
+
+**同じことが `KaiToolsStack` でも起きる**（`InvokeGateway` と `DescribeStacks` が消え、
+エージェントは Gateway の URL を引けずに 500 を返す）。`KaiWritebackStack` は
+`KaiToolsStack` に依存するので、**書き戻しだけをデプロイしたつもりでも 3 スタックが
+更新される** ―― 2026-08-09 にこれで台本が 0/8 になった。
+
+そのため context の代わりに環境変数でも渡せるようにしてある。**`.envrc.local` に
+書いておけば付け忘れが起きない**（`.gitignore` 済み）:
+
+```sh
+echo 'export KAI_RUNTIME_ROLE_ARN=<RuntimeRoleArn>' >> .envrc.local && direnv allow
+```
+
+どちらも無いときは synth の冒頭に警告が出る。**CDK 自体は成功してしまう**ので、
+気づけるのはこの警告か、あとでエージェントが 500 を返すときだけ。
 
 ロールは GitHub の OIDC で引き受ける（アクセスキーは置かない）。信頼するのは
 **このリポジトリの main の ref だけ**で、権限も `knowledge_base/` prefix への
@@ -233,6 +250,25 @@ uv run python code/scripts/check_propose.py --dry-run    # 受け付けない側
 
 **この段では Gateway に登録しない。** エージェントからは見えないので、台本 4 問の
 挙動は変わらない（L1b・L3a と同じ「作るだけ作って差し替えない」形）。
+
+### 起案をエージェントから呼べるようにする（L4b）
+
+Gateway に 2 つめのターゲットとして載せる。**既定は off**（載せると `tools/list` が
+2 → 4 になり、エージェントの挙動が変わりうるため）:
+
+```sh
+npx -y aws-cdk@2.1134.0 deploy KaiWritebackStack -c writebackTarget=on
+```
+
+判定は 2 段。**まずエージェントを通さずに** `tools/list` を見て、そのあと台本を流す:
+
+```sh
+uv run python code/scripts/check_gateway.py            # 4 つ出ること
+uv run python code/scripts/run_demo_script.py --runtime --repeat 2
+```
+
+`-c writebackTarget=off` に戻せば L4a の状態（エージェントからは見えない）に戻る。
+**Runtime の再デプロイは要らない** ―― ツールは実行時に `tools/list` で拾うため。
 
 ### 環境変数
 
