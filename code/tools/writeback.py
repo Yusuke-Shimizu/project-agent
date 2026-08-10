@@ -279,6 +279,21 @@ def _today(now: datetime.datetime | None = None) -> str:
     return (now or datetime.datetime.now(JST)).astimezone(JST).date().isoformat()
 
 
+def _strip_heading(body: str) -> str:
+    """本文の先頭にある見出し行を落とす。
+
+    `## 追記 YYYY-MM-DD` はツールが付けるので、エージェントが重ねて
+    `## 追記: …` を書くと**見出しが 2 つ並ぶ**（実測）。落とすのは**先頭の 1 行だけ**で、
+    本文中の見出し（`## 制約` など）は残す。
+    """
+    lines = body.strip().split("\n")
+    if lines and lines[0].lstrip().startswith("#"):
+        lines = lines[1:]
+        while lines and not lines[0].strip():
+            lines = lines[1:]
+    return "\n".join(lines).strip()
+
+
 def _branch_name(kind: str, key: str, text: str) -> str:
     """内容から決める。**同じ内容の PR を連発しない**ため（§4）。"""
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
@@ -416,8 +431,10 @@ def propose_append(
     # 読めることを確かめる。壊れている doc に足して二重に壊さない
     core.parse_document(current, path)
 
-    # 本文しか見ないエージェントが「いつの追記か」を根拠にできるよう日付を残す（§4）
-    addition = f"\n\n## 追記 {_today()}\n\n{body.strip()}\n"
+    # 本文しか見ないエージェントが「いつの追記か」を根拠にできるよう日付を残す（§4）。
+    # **見出しはツールが持つ**ので、本文側に付いていたら剥がす ―― 指示しても
+    # エージェントは自分の見出しを書くことがあり、実測で二重になった
+    addition = f"\n\n## 追記 {_today()}\n\n{_strip_heading(body)}\n"
     updated = current.rstrip("\n") + addition
 
     branch = _branch_name("append", doc_id, addition)
