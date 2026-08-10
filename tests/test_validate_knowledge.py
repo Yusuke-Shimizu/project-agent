@@ -114,6 +114,34 @@ def test_ISOでない日付を弾く(root):
     assert any("ISO 日付" in e for e in vk.validate(root))
 
 
+@pytest.mark.parametrize("bad", ["2025/10/02", "2026-03-XX", "YYYY-MM-DD"])
+def test_日付になっていない文字列を弾く(root, bad):
+    # **形だけ見ると 2026-03-XX を通してしまう**（10 文字・ハイフン 2 個）。
+    # エージェントが今日の日付を知らずにプレースホルダを書いてきたのを実測で見た
+    write(root, "knowledge/KNW-001.md", GOOD_KNOWLEDGE.replace("date: 2025-10-02", f"date: {bad}"))
+    assert any("ISO 日付" in e for e in vk.validate(root))
+
+
+@pytest.mark.parametrize("bad", ["2026-13-01", "2026-02-30"])
+def test_存在しない日付も弾く(root, bad):
+    # こちらは **PyYAML 自身が ValueError を投げる**（month must be in 1..12 など）ので、
+    # メッセージは違うが同じく弾かれる。「弾かれること」だけを固定する
+    write(root, "knowledge/KNW-001.md", GOOD_KNOWLEDGE.replace("date: 2025-10-02", f"date: {bad}"))
+    errors = vk.validate(root)
+    assert errors and "KNW-001" in errors[0]
+
+
+def test_knowledgeにproposedは使えない(root):
+    # proposed は「決定に昇格していない」という meeting 専用の語。起案は active で出す
+    write(root, "knowledge/KNW-001.md", GOOD_KNOWLEDGE.replace("status: active", "status: proposed"))
+    assert any("proposed は meeting だけ" in e for e in vk.validate(root))
+
+
+def test_decisionにproposedも使えない(root):
+    write(root, "decisions/DEC-001.md", GOOD_DECISION.replace("status: active", "status: proposed"))
+    assert any("proposed は meeting だけ" in e for e in vk.validate(root))
+
+
 def test_本文が空なら弾く(root):
     head, _, _ = GOOD_KNOWLEDGE.partition("\n\n#")
     write(root, "knowledge/KNW-001.md", head + "\n")
