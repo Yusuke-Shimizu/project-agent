@@ -269,6 +269,31 @@ def test_追記は既存本文の末尾に足す(gh):
     assert written.endswith("可視性タイムアウトの既定値は 1800 秒。\n")
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        "## 追記: 手動同期の制約\n\n本文が続く。",
+        "# 追記（2026 判明）\n本文が続く。",
+        "### 見出し\n\n\n本文が続く。",
+    ],
+)
+def test_本文の先頭の見出しは剥がす(gh, body):
+    # **見出しはツールが持つ。**指示してもエージェントは自分の見出しを書くことがあり、
+    # 実測で `## 追記 2026-08-10` と `## 追記: …` が 2 つ並んだ
+    append(gh, body=body)
+    written = gh.written("knowledge_base/knowledge/KNW-006.md")
+    additions = written.split(EXISTING.rstrip("\n"))[1]
+    assert additions.count("追記") == 1
+    assert additions.strip().startswith("## 追記 ")
+    assert "本文が続く。" in additions
+
+
+def test_本文中の見出しは残す(gh):
+    append(gh, body="観測した挙動。\n\n## 制約\n同時実行を避ける。")
+    written = gh.written("knowledge_base/knowledge/KNW-006.md")
+    assert "## 制約" in written
+
+
 def test_追記の見出しに日付が入る(gh):
     append(gh)
     written = gh.written("knowledge_base/knowledge/KNW-006.md")

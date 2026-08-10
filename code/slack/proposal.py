@@ -205,6 +205,7 @@ def directive(proposal: dict, source_url: str, requested_by: str) -> str:
         what = (
             f"既存の `{proposal['doc_id']}` の末尾に追記する形で、"
             f"propose_append を呼んでください。"
+            "**body に見出しは書かないこと** ―― `## 追記 <日付>` はツールが付けます。"
         )
     else:
         what = (
