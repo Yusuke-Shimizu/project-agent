@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -24,9 +25,10 @@ import boto3
 
 from proposal import ACTION_DISMISS, directive
 
-RUNTIME_ARN = os.environ["AGENT_RUNTIME_ARN"]
-SECRET_ID = os.environ["SLACK_SECRET_ID"]
 SLACK_API = "https://slack.com/api"
+
+# **環境変数も import 時には読まない。**モジュール直下で読むとテストが
+# 環境変数を要求し、CI で収集ごと落ちる（boto3 のクライアントと同じ理由で踏んだ）
 
 WORKING = "起案を作っています…"
 DISMISSED = "_起案しないことにしました。_"
@@ -37,19 +39,35 @@ _bot_token: str | None = None
 def _get_bot_token() -> str:
     global _bot_token
     if _bot_token is None:
-        value = boto3.client("secretsmanager").get_secret_value(SecretId=SECRET_ID)[
-            "SecretString"
-        ]
+        value = boto3.client("secretsmanager").get_secret_value(
+            SecretId=os.environ["SLACK_SECRET_ID"]
+        )["SecretString"]
         _bot_token = json.loads(value)["bot_token"]
     return _bot_token
 
 
-def _slack(method: str, payload: dict) -> dict:
+def encode(payload: dict, form: bool) -> tuple[bytes, str]:
+    """Slack に送る本体を作る。
+
+    **`chat.getPermalink` は JSON ボディを受け付けない**（`invalid_arguments` が返る）。
+    `chat.postMessage` や `chat.update` は JSON で通るので気づきにくく、**実測で踏んだ**
+    ―― 起案が `source_url` 無しで拒否され続けた。読み系のメソッドは form で送る。
+    """
+    if form:
+        return (
+            urllib.parse.urlencode(payload).encode("utf-8"),
+            "application/x-www-form-urlencoded; charset=utf-8",
+        )
+    return json.dumps(payload).encode("utf-8"), "application/json; charset=utf-8"
+
+
+def _slack(method: str, payload: dict, form: bool = False) -> dict:
+    data, content_type = encode(payload, form)
     request = urllib.request.Request(
         f"{SLACK_API}/{method}",
-        data=json.dumps(payload).encode("utf-8"),
+        data=data,
         headers={
-            "Content-Type": "application/json; charset=utf-8",
+            "Content-Type": content_type,
             "Authorization": f"Bearer {_get_bot_token()}",
         },
     )
@@ -63,10 +81,19 @@ def _slack(method: str, payload: dict) -> dict:
 def _permalink(channel: str, ts: str) -> str:
     """起案の `source_url` になる。**どのやりとりから出た起案か辿れるようにする。**
 
-    取れなければ空で返す（起案ツール側で拒否されるので、静かに間違えることはない）。
+    `source_url` が空だと起案ツールが拒否するので、ここが**起案全体の単一障害点**になる。
+    取れなかったときはワークスペースの URL から組み立てて凌ぐ（形式は固定）。
     """
-    got = _slack("chat.getPermalink", {"channel": channel, "message_ts": ts})
-    return str(got.get("permalink") or "")
+    got = _slack("chat.getPermalink", {"channel": channel, "message_ts": ts}, form=True)
+    link = str(got.get("permalink") or "")
+    if link:
+        return link
+
+    base = str(_slack("auth.test", {}, form=True).get("url") or "").rstrip("/")
+    if not base:
+        return ""
+    # 形式は `<team>/archives/<channel>/p<ts の . を抜いたもの>`
+    return f"{base}/archives/{channel}/p{ts.replace('.', '')}"
 
 
 def _session_id(thread_ts: str) -> str:
@@ -80,7 +107,7 @@ def _session_id(thread_ts: str) -> str:
 
 def _ask_agent(prompt: str, thread_ts: str) -> str:
     response = boto3.client("bedrock-agentcore").invoke_agent_runtime(
-        agentRuntimeArn=RUNTIME_ARN,
+        agentRuntimeArn=os.environ["AGENT_RUNTIME_ARN"],
         runtimeSessionId=_session_id(thread_ts),
         payload=json.dumps({"prompt": prompt}).encode("utf-8"),
     )

@@ -119,3 +119,24 @@ def test_壊れたpayloadは空辞書(body):
     import interactive
 
     assert interactive.parse_payload(body) == {}
+
+
+# --- Slack に送る本体のエンコード ------------------------------------------
+
+
+def test_getPermalinkはformで送る():
+    # **chat.getPermalink は JSON ボディを受け付けない**（invalid_arguments）。
+    # postMessage / update は JSON で通るので気づきにくく、実測で踏んだ
+    import propose_worker
+
+    data, ctype = propose_worker.encode({"channel": "C1", "message_ts": "1.2"}, form=True)
+    assert ctype.startswith("application/x-www-form-urlencoded")
+    assert data == b"channel=C1&message_ts=1.2"
+
+
+def test_投稿系はJSONで送る():
+    import propose_worker
+
+    data, ctype = propose_worker.encode({"channel": "C1", "text": "あ"}, form=False)
+    assert ctype.startswith("application/json")
+    assert json.loads(data)["text"] == "あ"
