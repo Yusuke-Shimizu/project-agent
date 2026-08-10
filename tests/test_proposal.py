@@ -159,6 +159,35 @@ def test_新規起案の指示文はpropose_knowledgeを指す():
     assert "採番" in text
 
 
+def test_新規起案の指示文に今日の日付が入る():
+    # **エージェントは今日の日付を知らない。**実測で date: 2026-03-XX を書いてきた
+    import datetime
+
+    prop = {"kind": "new", "doc_id": "", "based_on": ["DEC-004"], "summary": "x"}
+    text = proposal.directive(prop, "u", "U1")
+    today = datetime.datetime.now(proposal.JST).date().isoformat()
+    assert today in text
+
+
+def test_front_matterの要求は日付を注入できる():
+    import datetime
+
+    # JST 8/10 01:00（UTC では 8/9）
+    now = datetime.datetime.fromisoformat("2026-08-09T16:00:00+00:00")
+    assert "2026-08-10" in proposal.front_matter_rules(now)
+
+
+def test_新規起案の指示文はstatusをactiveと言う():
+    prop = {"kind": "new", "doc_id": "", "based_on": ["DEC-004"], "summary": "x"}
+    text = proposal.directive(prop, "u", "U1")
+    assert "active" in text and "proposed にはしない" in text
+
+
+def test_追記の指示文にはfront_matterの要求を入れない(prop):
+    # 追記は front matter を触らないので、渡すと逆に迷わせる
+    assert "front matter は次を満たすこと" not in proposal.directive(prop, "u", "U1")
+
+
 def test_指示文は根拠を読ませる(prop):
     # 出力契約ルール1（読んでいない doc を根拠に挙げない）の書き込み側
     assert "実際に読んでから" in proposal.directive(prop, "u", "U1")

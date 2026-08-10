@@ -25,6 +25,7 @@ Slack の `value` は 2000 文字までなので、要旨 1 行と doc_id なら
 
 from __future__ import annotations
 
+import datetime
 import json
 
 #: 回答の最終行に置く印。人には見せない
@@ -167,11 +168,37 @@ def blocks(text: str, proposal: dict) -> list[dict]:
     ]
 
 
+#: 追記の見出しと同じく JST。**Lambda は UTC なので固定オフセットで持つ**
+JST = datetime.timezone(datetime.timedelta(hours=9))
+
+#: front matter の要求。**エージェントは今日の日付を知らない**ので指示文に入れる。
+#:
+#: 実測（2026-08-10）では `date: 2026-03-XX` というプレースホルダと、
+#: knowledge に `status: proposed`、`topic` の欠落を書いてきた。CI は止めたが、
+#: **PR を立てる前に分かることは指示文で渡しておく**ほうが早い。
+FRONT_MATTER_RULES = """front matter は次を満たすこと:
+
+- `doc_id` / `doc_type` / `title` / `date` / `status` / `topic` は必須
+- `date` は **{today}**（今日。推測やプレースホルダを書かない）
+- `status` は **active**（マージされた時点で正本になるので、proposed にはしない）
+- `topic` は既存の doc が使っている値から選ぶ（新語を作らない）
+- `owner` と `review_by` も既存の doc に倣って入れる
+- `supersedes` / `superseded_by` / `decided_by` は **decision だけ**が持てる"""
+
+
+def front_matter_rules(now: datetime.datetime | None = None) -> str:
+    today = (now or datetime.datetime.now(JST)).astimezone(JST).date().isoformat()
+    return FRONT_MATTER_RULES.format(today=today)
+
+
 def directive(proposal: dict, source_url: str, requested_by: str) -> str:
     """クリック後にエージェントへ渡す指示文。
 
     **下書きはここで初めて作られる。** エージェントは正本を引き直してから
     起案ツールを呼ぶ ―― スレッドを読み直すためのスコープが要らないのはこのため。
+
+    **今日の日付と front matter の要求もここで渡す。** エージェントは日付を知らないし、
+    規約の全文も持っていない（実測でプレースホルダを書いてきた）。
     """
     based_on = ", ".join(proposal["based_on"])
     if proposal["kind"] == "append":
@@ -182,7 +209,8 @@ def directive(proposal: dict, source_url: str, requested_by: str) -> str:
     else:
         what = (
             "新しい knowledge として propose_knowledge を呼んでください。"
-            "doc_id は既存の最大 + 1 で採番し、front matter は規約どおりに書いてください。"
+            "doc_id は既存の最大 + 1 で採番してください。\n\n"
+            + front_matter_rules()
         )
 
     return (

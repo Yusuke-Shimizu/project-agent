@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import pathlib
 import sys
 
@@ -34,6 +35,18 @@ DOC_TYPES = ("decision", "knowledge", "meeting")
 
 #: `status` に使える値
 STATUSES = ("active", "superseded", "proposed", "rejected")
+
+#: `doc_type` ごとに使える `status`。
+#:
+#: **`proposed` は meeting だけ。** 「検討したが正式 decision に昇格していない」という
+#: 文書のライフサイクルの語なので、knowledge や decision には付かない。起案は
+#: `active` で出してマージが昇格、という決めごと（writeback_pr_tool.md §5）の裏返し。
+#: **エージェントが knowledge に `proposed` を書いてきたのを実測で見た**ので機械で見る
+STATUS_BY_TYPE = {
+    "decision": ("active", "superseded", "rejected"),
+    "knowledge": ("active", "superseded", "rejected"),
+    "meeting": ("proposed",),
+}
 
 #: ディレクトリ名と `doc_type` の対応。**置き場所と型が食い違っていたら弾く**
 DIR_TO_TYPE = {"decisions": "decision", "knowledge": "knowledge", "meetings": "meeting"}
@@ -97,8 +110,12 @@ def validate(root: pathlib.Path, topics: set[str] | None = None) -> list[str]:
             errors.append(f"{where}: doc_type が {DOC_TYPES} のどれでもない: {doc.doc_type!r}")
         if doc.status not in STATUSES:
             errors.append(f"{where}: status が {STATUSES} のどれでもない: {doc.status!r}")
-        if len(doc.date) != 10 or doc.date.count("-") != 2:
-            errors.append(f"{where}: date が ISO 日付（YYYY-MM-DD）ではない: {doc.date!r}")
+        # **形だけ見ると `2026-03-XX` を通してしまう**（10 文字・ハイフン 2 個）。
+        # エージェントが今日の日付を知らずにプレースホルダを書いてきたのを実測で見た
+        try:
+            datetime.date.fromisoformat(doc.date)
+        except ValueError:
+            errors.append(f"{where}: date が実在する ISO 日付（YYYY-MM-DD）ではない: {doc.date!r}")
         if not doc.body:
             errors.append(f"{where}: 本文が空")
 
@@ -114,9 +131,16 @@ def validate(root: pathlib.Path, topics: set[str] | None = None) -> list[str]:
         elif doc.doc_type != expected:
             errors.append(f"{where}: {where.parts[0]}/ には doc_type={expected} を置く（{doc.doc_type}）")
 
-        # ⑤ meeting は決定ではないので必ず proposed
-        if doc.doc_type == "meeting" and doc.status != "proposed":
-            errors.append(f"{where}: meeting は status: proposed（検討の記録であって決定ではない）")
+        # ⑤ 型ごとに使える status。meeting は必ず proposed、それ以外に proposed は無い
+        allowed = STATUS_BY_TYPE.get(doc.doc_type)
+        if allowed and doc.status not in allowed:
+            if doc.doc_type == "meeting":
+                errors.append(f"{where}: meeting は status: proposed（検討の記録であって決定ではない）")
+            else:
+                errors.append(
+                    f"{where}: {doc.doc_type} に status: {doc.status} は使えない"
+                    f"（{allowed} のいずれか。proposed は meeting だけ）"
+                )
 
         # ⑥ 版の連鎖は decision だけが持つ
         if doc.doc_type != "decision":
