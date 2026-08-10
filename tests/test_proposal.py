@@ -14,15 +14,14 @@ import pytest
 
 import proposal
 
+#: 回答の見本。**2026-08-10 にラベル（【指摘】など）をやめた**ので、
+#: フィクスチャも実際の書き方に揃えてある（古い形を残すと誤解を招く）
 ANSWER = """\
-【指摘】
-PartnerSync の即時リトライは KNW-002 の制約とズレています。
+即時リトライは使えません。KNW-002（2025-10-02, active）に過去事故が記録されています。
 
-【根拠】
-KNW-002（2025-10-02, active）
+> 連携呼び出しは必ず指数バックオフ + ジッターを実装する
 
-【確認してほしいこと】
-バックオフの実装方針を決めてください。"""
+バックオフの間隔をどう決めますか。"""
 
 MARKED = (
     ANSWER
@@ -191,3 +190,21 @@ def test_追記の指示文にはfront_matterの要求を入れない(prop):
 def test_指示文は根拠を読ませる(prop):
     # 出力契約ルール1（読んでいない doc を根拠に挙げない）の書き込み側
     assert "実際に読んでから" in proposal.directive(prop, "u", "U1")
+
+
+# --- ボタンだけ外す ---------------------------------------------------------
+
+
+def test_ボタンの行だけ外して本文は残す(prop):
+    original = proposal.blocks(ANSWER, prop)
+    left = proposal.without_actions(original)
+
+    # **回答が消えないこと**が要点。以前は本文ごと差し替えていて追えなくなっていた
+    assert [b["type"] for b in left] == ["section", "context"]
+    assert left[0]["text"]["text"] == ANSWER
+    assert not [b for b in left if b["type"] == "actions"]
+
+
+@pytest.mark.parametrize("blocks", [None, [], [{"type": "actions", "elements": []}]])
+def test_外した結果が空でも落ちない(blocks):
+    assert proposal.without_actions(blocks) == []

@@ -168,6 +168,18 @@ def blocks(text: str, proposal: dict) -> list[dict]:
     ]
 
 
+def without_actions(blocks: list[dict] | None) -> list[dict]:
+    """ボタンの行だけを外して、**回答の本文は残す**。
+
+    以前は `chat.update` で本文ごと結果に差し替えていたが、それだと
+    **押した瞬間に 3 ブロックの回答が消える**（実測で気づいた）。何を提案されて何を
+    断ったのかが後から追えず、§10 の「提案の的中率」を数えるときにも困る。
+
+    本文を残してボタンだけ外せば、二度押しは防げて履歴は残る。
+    """
+    return [b for b in (blocks or []) if b.get("type") != "actions"]
+
+
 #: 追記の見出しと同じく JST。**Lambda は UTC なので固定オフセットで持つ**
 JST = datetime.timezone(datetime.timedelta(hours=9))
 

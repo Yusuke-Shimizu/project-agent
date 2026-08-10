@@ -30,10 +30,23 @@ ABSENCE = re.compile(
     r"見つか(らな|りませ)|見当たら(な|ませ)|存在し(ない|ませ)|記録は(無|な)い"
 )
 
-#: 出力契約の3ブロック（§7）。**これを検証していなかった。**
-#: L2 で「全段 PASS なのに人の目に触れる場所で壊れていた」を踏んだので、
-#: 判定の穴を先に塞いでおく。契約が崩れていないことは doc_id の含有では測れない。
-BLOCKS = ("【指摘】", "【根拠】", "【確認してほしいこと】")
+#: 出力契約（§7）が崩れていないかの検証。**doc_id の含有では測れない**ので別に見る。
+#: L2 で「全段 PASS なのに人の目に触れる場所で壊れていた」を踏んで入れた。
+#:
+#: **2026-08-10 に見るものを変えた。** 以前は 【指摘】【根拠】【確認してほしいこと】 の
+#: ラベルの有無を見ていたが、**ラベル自体をやめた**（人は Slack でそう書かない）。
+#: 代わりに契約の中身を見る ―― 根拠の書式・引用・人に返しているか。
+#: 形だけ整っていても中身が無ければ意味がないので、こちらのほうが物差しとして正しい。
+
+#: 根拠は `doc_id（日付, status）` の形で出す（§7）。日付と status が無いと
+#: 「いつの・現行かどうか」が読めない
+EVIDENCE = re.compile(r"（\d{4}-\d{2}-\d{2},\s*(active|superseded|proposed|rejected)）")
+
+#: 原文の引用（行頭の `>`）。**読んだ証拠**であって、doc_id を挙げただけでは足りない
+QUOTE = re.compile(r"^\s*>", re.M)
+
+#: 判断を人に返しているか。断定して終わらせていないこと
+ASK = re.compile(r"どちら|決めて|確認して|選んで|しますか|ますか？|でしょうか")
 
 DEMO_SCRIPT = [
     {
@@ -99,9 +112,18 @@ def check(question: dict, answer: str) -> tuple[bool, list[str]]:
 
     # 出力契約が崩れていないか。差し替えのたびに「答えの中身」は見てきたが、
     # **「答えの形」を見ていなかった**
-    for block in BLOCKS:
-        if block not in answer:
-            problems.append(f"{block} が無い")
+    # **引くべき doc がある問だけ**根拠の形を要求する。
+    # 予備問（監視ツール）は「記録が無い」と答えるのが正解なので、
+    # 引用も doc_id も出ない ―― そこに根拠を求めると、無いものを挙げさせる判定になる
+    if question["expect"]:
+        if not EVIDENCE.search(answer):
+            problems.append("根拠が doc_id（日付, status）の形で出ていない")
+        if not QUOTE.search(answer):
+            problems.append("原文の引用が無い")
+
+    # これは全問に要る。断定して終わらせず、判断を人に返しているか
+    if not ASK.search(answer):
+        problems.append("人に決めてほしいことを聞いていない")
 
     for doc_id in question["expect"]:
         if doc_id not in answer:
