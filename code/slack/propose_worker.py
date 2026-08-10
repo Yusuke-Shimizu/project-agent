@@ -23,7 +23,7 @@ import uuid
 
 import boto3
 
-from proposal import ACTION_DISMISS, directive
+from proposal import ACTION_DISMISS, directive, without_actions
 
 SLACK_API = "https://slack.com/api"
 
@@ -117,9 +117,35 @@ def _ask_agent(prompt: str, thread_ts: str) -> str:
     return str(body.get("result", ""))
 
 
-def _replace(channel: str, ts: str, text: str) -> None:
-    """ボタンを消して結果に差し替える。**二度押しを構造で防ぐ**（ボタンが無くなる）。"""
-    _slack("chat.update", {"channel": channel, "ts": ts, "text": text, "blocks": []})
+def _disable_buttons(event: dict) -> None:
+    """**ボタンだけ外す。本文は残す。**
+
+    以前は本文ごと結果に差し替えていたが、それだと押した瞬間に 3 ブロックの回答が
+    消えて、何を提案され何を断ったのかが後から追えなくなる（実測で気づいた）。
+    ボタンを外せば二度押しは防げるので、本文を消す理由が無い。
+    """
+    blocks = without_actions(event.get("message_blocks"))
+    payload = {
+        "channel": event["channel"],
+        "ts": event["message_ts"],
+        "text": event.get("message_text") or "",
+    }
+    # blocks を持っていない（想定外の形）ときは text だけ残す
+    if blocks:
+        payload["blocks"] = blocks
+    _slack("chat.update", payload)
+
+
+def _reply(channel: str, thread_ts: str, text: str) -> str:
+    """スレッドに**新しい返信**として出す。戻り値はその ts（あとで差し替える）。"""
+    got = _slack(
+        "chat.postMessage", {"channel": channel, "thread_ts": thread_ts, "text": text}
+    )
+    return str(got.get("ts") or "")
+
+
+def _update(channel: str, ts: str, text: str) -> None:
+    _slack("chat.update", {"channel": channel, "ts": ts, "text": text})
 
 
 def handler(event, context):
@@ -135,7 +161,8 @@ def handler(event, context):
     if event.get("action_id") == ACTION_DISMISS:
         # 「不要」も記録する。押されなかった提案と区別できないと的中率が測れない（§10）
         print(f"起案を却下: channel={channel} thread_ts={thread_ts} user={user}")
-        _replace(channel, message_ts, DISMISSED)
+        _disable_buttons(event)
+        _reply(channel, thread_ts, DISMISSED)
         return
 
     try:
@@ -148,10 +175,14 @@ def handler(event, context):
         }
     except (json.JSONDecodeError, KeyError) as exc:
         print(f"ボタンの value が読めない: {exc}")
-        _replace(channel, message_ts, "起案できませんでした（ボタンの情報が壊れています）。")
+        _disable_buttons(event)
+        _reply(channel, thread_ts, "起案できませんでした（ボタンの情報が壊れています）。")
         return
 
-    _replace(channel, message_ts, WORKING)
+    # **回答は残したままボタンだけ外し、進捗はスレッドの返信で出す。**
+    # 結果までスレッドに並ぶので「提案 → 起案 → PR」が後から追える
+    _disable_buttons(event)
+    progress_ts = _reply(channel, thread_ts, WORKING)
 
     source_url = _permalink(channel, thread_ts)
     prompt = directive(proposal, source_url, user)
@@ -163,4 +194,8 @@ def handler(event, context):
         answer = f"起案に失敗しました（{type(exc).__name__}）。ログを確認してください。"
 
     print(f"--- 起案の結果 channel={channel} thread_ts={thread_ts}\n{answer}")
-    _replace(channel, message_ts, answer)
+    if progress_ts:
+        _update(channel, progress_ts, answer)
+    else:
+        # 「起案を作っています…」の投稿に失敗していた場合は普通に返信する
+        _reply(channel, thread_ts, answer)

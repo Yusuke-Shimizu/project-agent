@@ -76,8 +76,11 @@ def handler(event, context):
                 "action_id": action_id,
                 "value": (actions[0] or {}).get("value") or "",
                 "channel": (payload.get("channel") or {}).get("id"),
-                # ボタンが乗っているメッセージ。ここを差し替える
+                # ボタンが乗っているメッセージ。**本文は残してボタンだけ外す**ので、
+                # 元の blocks と text も渡す（worker 側で組み直せるように）
                 "message_ts": (payload.get("message") or {}).get("ts"),
+                "message_text": (payload.get("message") or {}).get("text") or "",
+                "message_blocks": (payload.get("message") or {}).get("blocks") or [],
                 "thread_ts": (payload.get("message") or {}).get("thread_ts"),
                 "user": (payload.get("user") or {}).get("id"),
                 # 30 分・5 回まで使える返信用 URL（chat.update が使えないときの保険）

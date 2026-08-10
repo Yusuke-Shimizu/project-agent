@@ -191,3 +191,21 @@ def test_追記の指示文にはfront_matterの要求を入れない(prop):
 def test_指示文は根拠を読ませる(prop):
     # 出力契約ルール1（読んでいない doc を根拠に挙げない）の書き込み側
     assert "実際に読んでから" in proposal.directive(prop, "u", "U1")
+
+
+# --- ボタンだけ外す ---------------------------------------------------------
+
+
+def test_ボタンの行だけ外して本文は残す(prop):
+    original = proposal.blocks(ANSWER, prop)
+    left = proposal.without_actions(original)
+
+    # **回答が消えないこと**が要点。以前は本文ごと差し替えていて追えなくなっていた
+    assert [b["type"] for b in left] == ["section", "context"]
+    assert left[0]["text"]["text"] == ANSWER
+    assert not [b for b in left if b["type"] == "actions"]
+
+
+@pytest.mark.parametrize("blocks", [None, [], [{"type": "actions", "elements": []}]])
+def test_外した結果が空でも落ちない(blocks):
+    assert proposal.without_actions(blocks) == []
