@@ -45,8 +45,21 @@ EVIDENCE = re.compile(r"（\d{4}-\d{2}-\d{2},\s*(active|superseded|proposed|reje
 #: 原文の引用（行頭の `>`）。**読んだ証拠**であって、doc_id を挙げただけでは足りない
 QUOTE = re.compile(r"^\s*>", re.M)
 
-#: 判断を人に返しているか。断定して終わらせていないこと
-ASK = re.compile(r"どちら|決めて|確認して|選んで|しますか|ますか？|でしょうか")
+#: 判断を人に返しているか。断定して終わらせていないこと。
+#:
+#: **最後の行だけを見る。** 出力契約は「最後に、人に決めてほしいことを 1 つ聞く」なので、
+#: 途中に疑問文があっても締めが断定なら契約は守れていない。
+#:
+#: 語尾の列挙で判定しようとして一度失敗した（「…問題ないですか？」を拾えず Q2 が
+#: 2 回 FAIL した）。**答えは正しく聞いていたのに判定が落としていた**ので、
+#: 疑問符と依頼表現を広く取る形にしてある
+ASK = re.compile(r"[?？]|ますか|ください|ほしい|どちら|でしょうか|決め")
+
+
+def closing_line(answer: str) -> str:
+    """最後の空でない行。ここで人に返しているかを見る。"""
+    lines = [line.strip() for line in answer.strip().split("\n") if line.strip()]
+    return lines[-1] if lines else ""
 
 DEMO_SCRIPT = [
     {
@@ -122,8 +135,8 @@ def check(question: dict, answer: str) -> tuple[bool, list[str]]:
             problems.append("原文の引用が無い")
 
     # これは全問に要る。断定して終わらせず、判断を人に返しているか
-    if not ASK.search(answer):
-        problems.append("人に決めてほしいことを聞いていない")
+    if not ASK.search(closing_line(answer)):
+        problems.append("最後に人へ返していない（締めが断定になっている）")
 
     for doc_id in question["expect"]:
         if doc_id not in answer:
